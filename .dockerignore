@@ -1,0 +1,12 @@
+# The UI image only needs app/, components/, lib/, public/ and build config.
+data
+node_modules
+dist
+outputs
+tmp
+docker/*.log
+.git
+api
+hermes-skills
+*.png
+!public/**

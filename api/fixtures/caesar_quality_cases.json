@@ -1,0 +1,74 @@
+[
+  {
+    "name": "advertisement_is_not_buyer",
+    "buyer": "🏡 *CARI RUMAH BARU DI CITRALAND? INI PILIHAN YANG TEPAT!*\n\n📍Alam Hijau, Citraland \n📐 Luas Tanah: 120 m2 (8 × 15)\n🏠 Luas Bangunan: 195 m2 | 2 Lantai\n🛏️ Kamar Tidur: 4 + 1\n🛁 Kamar Mandi: 4 + 1\n🚗 Carport: 2 Mobil\n🧭 Hadap: Utara\n📜 Legalitas: PPJB\n🔐 Smart Door Lock\n\n💰 *Harga: Rp3,2 Miliar (NEGO)*",
+    "property": "*Dijual Rumah Baru Gress, Citraland Alam Hijau*\n\nProses Finishing, estimasi selesai akhir Juni 2026 \n\nLuas Tanah 120m2 (8 x 15)\nLuas Bangunan 195m2 (2 lantai)\nKamar Tidur 4+1\nKamar Mandi 4+1\nCarport 2 mobil\n\nHadap Utara\n\n+ Kusein YKK Finish Good, Sanitair Kohler, Smart door lock by Bardi, Instalasi pipa anti rayap\n+ Dekat dari Citraland Fresh Market (Pasar Modern), Lapangan Tennis\n+ Dekat dari rencana jalan Radial Road\n+ Tidak jauh dari Sekolah Taipe School, SMP SMA MDC\n\nSertifikat PPJB\n\nHarga 3,2 Milyar Nego",
+    "expected": "reject"
+  },
+  {
+    "name": "residential_house_is_not_business_shophouse",
+    "buyer": "\"Request klien\"\n\nCari untuk di beli ruko atau rumah usaha\n-- Hanya mau raya Gayungsari (sekitar smp 22)\n-- Luas mengikuti budget\n-- Budget under 5 m",
+    "property": "*TURUN HARGA!! Dijual Rumah Baru Gress Taman Gayungsari Barat*\nSangat dekat dari Jl. Raya Ahmad Yani\n\nLuas Tanah 186 m2 (8,8 x 19,8)\nLuas Bangunan 250 m2 (2 Lantai)\nKamar Tidur 4+1\nKamar Mandi 3+1\nCarport 2 Mobil\n\nHadap Utara\n\n+ Baru Gress Bagus Siap Huni\n+ Hanya 4 menit dari Jl. Raya A. Yani\n+ Akses sangat mudah dan nyaman\n+ Dekat dari Trans Icon Mall, City of Tomorrow Mall (Cito)\n+ Tidak jauh dari pintu tol Waru dan Jambangan, Masjid Agung\n\nSertifikat Hak Milik (SHM)\n\nTurun Hargadari ~4,05 Milyar~ Jadi\nHarga 3,75 Milyar",
+    "expected": "reject"
+  },
+  {
+    "name": "land_75_vs_120",
+    "buyer": "*Buyer Request*\n\nHari Selasa Survey\n\nCari Rumah/Rumah Kos Sekitaran ITS & Unair (Sutorejo, Mulyosari, dan Sekitar)\n\n*LT 120m2* \n\nBudged Under 2M\n*Sementara yang mau di survey kisaran 1.5M*\n\nFoto & Spek",
+    "property": "*Dijual Rumah Baru Gress Klampis Barat*\n\nLuas Tanah 75m2 (5 x 15) \nLuas Bangunan +-130m2 \nKamar Tidur 3+1\nKamar Mandi 3+1 \n\nHadap Selatan\n\n+ Dekat ke Raya MERR, Galaxy Mall, ITS, Hokky Supermarket \n+ Tidak jauh dari Semolowaru, Raya Nginden, Arief Rahman Hakim\n\nSertifikat Hak Milik (SHM)\n\nHarga 1,8 Milyar Nego",
+    "expected": "reject"
+  },
+  {
+    "name": "land_1049_vs_300_400",
+    "buyer": "*BUYER REQUEST*\n\n- lokasi cari rumah jelek di darmo-darmoan atau kavling\n- *luas min 300 m2 dan max 400 m2*\n- *harga max 8-9 jt/m2*\n\n*",
+    "property": "*Dijual Tanah Darmo Sentosa Raya (DSR) Surabaya Barat*\n\nLuas Tanah 1049 m2 (±40 x ±25)\n\nHook\nHadap Tenggara - Barat Daya\n\n+ Cocok untuk di-split dan bangun beberapa rumah\n+ Row jalan 3 mobil\n+ Lokasi strategis area Mayjen Sungkono, Vila Bukit Mas (VBM)\n+ Akses dekat 2 pintu tol (satelit & gunungsari)\n+ Surabaya Barat dengan akses mudah ke tengah kota\n+ Dekat Lagoon Avenue Mall & Ciputra World Mall\n\nSertifikat HGB\n\n*Harga Jual 8 Juta /m2 (8,392M) Nego*",
+    "expected": "reject"
+  },
+  {
+    "name": "explicit_woodland_exclusion",
+    "buyer": "*Buyer Request*\n\n_Sudah survei belum cocok_\n\nTanah Kavling/Rumah Hitung tanah bisa di bongkar\n- Area citraland Utama\n❌ tidak mau Woodland, TPR, alam hijau ❌\n- Row jalan min 3 mobil\n- Luas tanah min 120m2\n- Lebar min 7",
+    "property": "*Dijual Rumah Baru Gress Woodland Citraland*\n\nLuas Tanah 153m2 (9x17)\nLuas Bangunan 249m2 (2 lantai)\nKamar Tidur 4+1\nKamar Mandi 3+1 (2 Kamar mandi dalam)\n\nHadap Utara\n\n+ Dekat dari area komersial sekitar Pasar Modern Citraland\n+ Dekat dari rencana jalan JLLB\n\nSertifikat HGB\n\nHarga 4,5 Milyar Nego",
+    "expected": "reject"
+  },
+  {
+    "name": "parking_and_existing_tenant_unknown",
+    "buyer": "Viewing Besok Minggu \nDicari Beli Ruko/ Rumah Surabaya Barat\n• Luas mengikuti\n• Peruntukan tempat les\n• Prefer dekat dgn sekolah\n• Parkiran ada\n• Jika ruko tidak mau yg berbayar\n• Budget 3M-3.5M",
+    "property": "*Dijual Ruko Dian Istana, Surabaya Barat*\n\nLuas Tanah 112m2 (4,5×25)\nLuas Bangunan 250m2 (3 Lantai)\n\nListrik 2200 Watt\nAir PDAM\n\nHadap Utara\n\n+ Cocok untuk kantor atau usaha lain\n+ Sudah Tersewa 1 Tahun, Uang sewa untuk pembeli, bila mau pake langsung bisa di runding\n\nSerifikat Hak Milik (SHM)\n\n*Harga 3,1 Milyar Nego*",
+    "expected": "warm"
+  },
+  {
+    "name": "wrong_neighbourhood_1",
+    "buyer": "*Buyer Request*\n*CARI RUMAH*\n: \n*CARI RUMAH Budget Under 2M*\n\n*-Luas Tanah minimal 100m2 dibawah itu tidak mau*\n*-Kondisi rumah gress lebih bagus/preferably*\n*-Cari area rumah yang dekat kampus ITS, Mengarah ke Araya 2, Semolowaru Indah 2, ke arah rungkut *tidak mau area keputih*\n*-Tidak mau yang rentan kena banjir / macet*\n\n*-Surat prefer SHM/HGB*",
+    "property": "*Butuh Segera Laku!! Dijual Rumah Pondok Tjandra, Jl Duku*\n\nLuas Tanah 150m2 \nLuas Bangunan 90m2 \nKamar Tidur 2 \nKamar Mandi 2\nGudang\nListrik 2200W\nPDAM\n\n+ Semi furnished : AC, meja makan, lemari, sofa \n+ Dekat dari pintu Tol Tambak Sumur \n+ Tidak jauh ke KFC Rungkut Menanggal, Raya MERR\n\nSertifikat Hak Milik (SHM)\n\nHarga 1,5 Milyar (Nego)",
+    "expected": "reject"
+  },
+  {
+    "name": "storage_room_is_not_warehouse",
+    "buyer": "*Hot buyer masih cari !*\n\nSegera viewing.\n- Dicari tanah/kavling untuk dibangun gudang (tidak mau zona residensial) atau bangunan gudang boleh ditawarkan.\n- Luas tanah maksimal 500 (lebih dikit gpp coba saya ajukan).\n- Lokasi sby timur yang tidak jauh dari pondok tjandra.\n- Lebar minimal 15 (dibawah itu tlg jgn ditawarkan)\n- Bebas banjir.\n- Budget mengikuti pasaran atau lokasi (BU lebih bagus lagi)\n- Akses bisa kontainer 40 feet.\n- Komplek pergudangan atau raya boleh ditawarkan.\n\nPlease spek dan foto lengkap kalau ada tmn2 Thankyou.GBU.\n\nMore Info :",
+    "property": "*Butuh Segera Laku!! Dijual Rumah Pondok Tjandra, Jl Duku*\n\nLuas Tanah 150m2 \nLuas Bangunan 90m2 \nKamar Tidur 2 \nKamar Mandi 2\nGudang\nListrik 2200W\nPDAM\n\n+ Semi furnished : AC, meja makan, lemari, sofa \n+ Dekat dari pintu Tol Tambak Sumur \n+ Tidak jauh ke KFC Rungkut Menanggal, Raya MERR\n\nSertifikat Hak Milik (SHM)\n\nHarga 1,5 Milyar (Nego)",
+    "expected": "reject"
+  },
+  {
+    "name": "wrong_neighbourhood_2",
+    "buyer": "*Buyer Request*\n*CARI RUMAH*\n\n*Budget Under 2M*\n\n*Luas Tanah minimal 100m2 dibawah itu tidak mau*\n\n*Kondisi rumah gress lebih bagus/preferably*\n\n*Cari area rumah yang dekat kampus ITS, Mengarah ke Araya 2, Semolowaru Indah 2, ke arah rungkut *tidak mau area keputih*\n\n\n*Tidak mau yang rentan kena banjir / macet*\n\n*Surat prefer SHM/HGB*",
+    "property": "*Butuh Segera Laku!! Dijual Rumah Pondok Tjandra, Jl Duku*\n\nLuas Tanah 150m2 \nLuas Bangunan 90m2 \nKamar Tidur 2 \nKamar Mandi 2\nGudang\nListrik 2200W\nPDAM\n\n+ Semi furnished : AC, meja makan, lemari, sofa \n+ Dekat dari pintu Tol Tambak Sumur \n+ Tidak jauh ke KFC Rungkut Menanggal, Raya MERR\n\nSertifikat Hak Milik (SHM)\n\nHarga 1,5 Milyar (Nego)",
+    "expected": "reject"
+  },
+  {
+    "name": "wrong_neighbourhood_3",
+    "buyer": "*Buyer Request*\n*CARI RUMAH*\n*Budget Under 2M\n\n*Cari area rumah yang dekat kampus ITS, Mengarah ke Araya 2, Semolowaru Indah 2, ke arah rungkut \n\n*Tidak mau yang rentan kena banjir / macet\n\n*Surat prefer SHM/HGB",
+    "property": "*Butuh Segera Laku!! Dijual Rumah Pondok Tjandra, Jl Duku*\n\nLuas Tanah 150m2 \nLuas Bangunan 90m2 \nKamar Tidur 2 \nKamar Mandi 2\nGudang\nListrik 2200W\nPDAM\n\n+ Semi furnished : AC, meja makan, lemari, sofa \n+ Dekat dari pintu Tol Tambak Sumur \n+ Tidak jauh ke KFC Rungkut Menanggal, Raya MERR\n\nSertifikat Hak Milik (SHM)\n\nHarga 1,5 Milyar (Nego)",
+    "expected": "reject"
+  },
+  {
+    "name": "frontage_12_vs_15",
+    "buyer": "*HOT BUYER REQUEST! 🙂🙏🏻*\n\n_*Klien Lama Repeat Order*_\n\n•Cari Kav/Rumah Citraland\n•Luas 300-350m2\n•Lebar 15m\n•ROW 2.5 Mobil\n•Gamau TS/Barat/Cluster Lama\n•Harga BU Only",
+    "property": "*Dijual Rumah Citraland Baru Gress, Bukit Golf International (BGI)*\n\nLuas Tanah 300m2 (12 x 25)\nLuas Bangunan 500m2 (2,5 lantai Split Level)\nKamar Tidur 5+1\nKamar Mandi 6+1\nGudang 2\nGarasi + Carport 4 mobil\nListrik 5500\n\nHadap Utara\n\n+ Mewah dan High Spec : Lantai by Wisma Sehati, Facade marmer + rotan sintetis, Kusein + Pintu kayu Merbau Irian, Kusein YKK Finish Good, Sanitair Kohler, Smart Home System (Bardi + Google Nest), Instalasi pipa anti rayap\n+ Dekat dari Citraland Golf Club House (Palimanan)\n+ Dekat dari rencana jalan JLLB\n+ Tidak jauh dari Sekolah Cita Hati, Khayming School, Universitas Ciputra, Hokky Supermarket, Junggle Padel \n\nSertifikat Hak Milik (SHM)\n\nHarga 9,25 Milyar Nego",
+    "expected": "reject"
+  },
+  {
+    "name": "bargain_marble_condition_unknown",
+    "buyer": "Buyer req valid dicari rumah pakuwon indah only cluster bebas, syarat utama HARUS MURAH atau BU.\nLuasan 200 ke atas dan g mau rumah lama minta yg uda marmeran kalo ada. Budget max 10 m kalo ada yg beneran murah bs ditawarkan",
+    "property": "*Dijual Rumah Pakuwon Indah, Cluster La Riz Wood*\n\nLuas Tanah 240m2 \nLuas Bangunan 300m2 \nKamar Tidur 4+1\nKamar Mandi 4+1\nGarari 1 Mobil\nCarport 2 Mobil\nListrik 6600W\n\nHadap Utara\n\n+ Dekat dari Club House La Riz Pakuwon Indah \n+ Cluster tenang dan nyaman\n+ Tidak jauh dari Pakuwon Mall, Radial Road, National Hospital, dll\n\nSertifikat Hak Milik (SHM)\n\nHarga 7,75 Milyar Nego",
+    "expected": "warm"
+  }
+]
