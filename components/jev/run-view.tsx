@@ -141,11 +141,18 @@ export function RunView({ runId, onBack }: { runId: string; onBack: () => void }
                 ...(technical ? [{ label: 'API key', value: run.key_label ? `${run.key_label} ${run.key_masked ?? ''}` : 'Deleted' }] : []),
                 { label: 'Directions', value: payload.directions === 'both' ? 'Both directions' : DIRECTION_TITLES[(payload.directions ?? 'buyer') as Direction] },
                 { label: 'Pair statuses', value: statuses },
-                { label: 'Buyers posted', value: dates(payload.buyer_date_from, payload.buyer_date_to) },
-                { label: 'Listings posted', value: dates(payload.listing_date_from, payload.listing_date_to) },
+                { label: 'Source', value: payload.source === 'recent' ? 'Recent Match' : 'Match' },
+                ...(payload.source === 'recent' ? [{ label: 'New matches found', value: dates(payload.found_from, payload.found_to) }] : [
+                  { label: 'Buyers posted', value: dates(payload.buyer_date_from, payload.buyer_date_to) },
+                  { label: 'Listings posted', value: dates(payload.listing_date_from, payload.listing_date_to) },
+                ]),
                 { label: 'People', value: payload.group_keys ? countLabel(payload.group_keys.length, 'selected person', 'selected people') : 'Everyone' },
                 { label: 'Prompt version', value: run.prompt_version },
               ]} />
+            </Collapsible>
+            <Collapsible title="Prompt used" description="Instructions saved when this review started.">
+              {technical && <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{run.prompt_version.startsWith('jev-d') ? (payload.decision_questions ? JSON.stringify(payload.decision_questions, null, 2) : 'Standard prompt snapshot unavailable for this older run.') : payload.system_prompt ?? 'Standard prompt snapshot unavailable for this older run.'}</pre>}
+              <p className="mt-3 whitespace-pre-wrap break-words text-sm">{payload.custom_prompt || 'Standard instructions; no additional custom prompt.'}</p>
             </Collapsible>
           </div>
         </Panel>

@@ -725,3 +725,15 @@ ALTER TABLE xm.imports ADD COLUMN IF NOT EXISTS progress jsonb NOT NULL DEFAULT 
 ALTER TABLE xm.imports ADD COLUMN IF NOT EXISTS started_at timestamptz;
 ALTER TABLE xm.app_preferences ADD COLUMN IF NOT EXISTS analysis_from date;
 ALTER TABLE xm.match_settings ADD COLUMN IF NOT EXISTS analysis_window_months integer NOT NULL DEFAULT 4;
+
+-- Saved review instructions are tenant scoped; NULL owner shares with the company.
+CREATE TABLE IF NOT EXISTS xm.ai_prompts (
+ id uuid PRIMARY KEY,
+ company_id text NOT NULL REFERENCES xm.app_preferences(company_id) ON DELETE CASCADE,
+ owner_id uuid REFERENCES xm.users(id) ON DELETE CASCADE,
+ name text NOT NULL,
+ content text NOT NULL,
+ created_by uuid REFERENCES xm.users(id) ON DELETE SET NULL,
+ updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ai_prompts_company_idx ON xm.ai_prompts(company_id, owner_id);

@@ -24,12 +24,12 @@ export function ModelPicker({ value, onChange, models, error, loading, onRefresh
 
   return (
     <div className="space-y-3">
-      <fieldset aria-label="Preset models" className="mx-0 grid min-w-0 gap-2 border-0 p-0 sm:grid-cols-2">
+      <fieldset aria-label="Preset models" className="mx-0 grid min-w-0 grid-cols-1 gap-2 border-0 p-0 sm:grid-cols-2">
         {presets.map((model) => {
           const on = model.id === value;
           return (
             <button key={model.id} type="button" aria-pressed={on} onClick={() => onChange(model.id)}
-              className={cn('flex min-h-14 items-start gap-2.5 rounded-xl border p-3 text-left transition-colors',
+              className={cn('flex min-h-14 min-w-0 items-start gap-2.5 rounded-xl border p-3 text-left transition-colors',
                 on ? 'border-accent bg-accent-soft/60 ring-2 ring-accent/20' : 'border-border bg-surface hover:border-accent/50')}>
               <span aria-hidden="true" className={cn('mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border', on ? 'border-accent bg-accent text-accent-foreground' : 'border-border-secondary')}>
                 {on && <Check className="size-3.5" strokeWidth={3} />}
@@ -48,7 +48,7 @@ export function ModelPicker({ value, onChange, models, error, loading, onRefresh
         <div className="flex items-end gap-2">
           <SearchField value={search} onChange={setSearch} aria-label="Search all OpenRouter models" className="min-w-0 flex-1">
             <Label className="text-sm font-semibold">Or choose any other model</Label>
-            <SearchField.Group><SearchField.SearchIcon /><SearchField.Input placeholder={all.length ? `Search ${number(all.length)} models by name or id` : 'Search models'} /><SearchField.ClearButton /></SearchField.Group>
+            <SearchField.Group><SearchField.SearchIcon /><SearchField.Input className="min-w-0 w-full" placeholder={all.length ? `Search ${number(all.length)} models by name or id` : 'Search models'} /><SearchField.ClearButton /></SearchField.Group>
           </SearchField>
           {onRefresh && <Button isIconOnly variant="ghost" aria-label="Reload the model list" isDisabled={loading} onPress={onRefresh}><RefreshCw className="size-4" /></Button>}
         </div>

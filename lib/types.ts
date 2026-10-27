@@ -540,6 +540,7 @@ export type AiModels = { presets: AiModel[]; models: AiModel[]; default_model: s
 export type JevDirections = 'both' | 'property' | 'buyer';
 export type JevDecision = 'recommend' | 'reject' | 'unsure';
 export type JevScope = {
+  source?: 'recent' | 'match'; found_from?: string; found_to?: string; custom_prompt?: string; prompt_id?: string;
   model: string; key_id?: string; directions: JevDirections; statuses: Temperature[]; group_keys?: string[]; max_pairs: number;
   buyer_date_from: string; buyer_date_to: string; listing_date_from: string; listing_date_to: string;
 };
@@ -555,7 +556,7 @@ export type JevRun = {
   id: string; model: string; model_label: string; prompt_version: string; group_by: GroupBy; status: JevRunStatus; error: string | null;
   created_at: string; started_at: string | null; finished_at: string | null; key_id: string | null; key_label: string | null;
   key_masked: string | null; created_by_name: string | null;
-  payload: Partial<JevScope> & { model_label?: string }; estimate: Partial<JevEstimate>;
+  payload: Partial<JevScope> & { model_label?: string; system_prompt?: string; decision_questions?: Record<string, unknown> }; estimate: Partial<JevEstimate>;
   total: number; done: number; failed: number; pending: number; cached: number; recommend: number; reject: number; unsure: number;
   overrides: number; cost: number; cost_estimated: boolean; tokens_in: number; tokens_out: number;
 };

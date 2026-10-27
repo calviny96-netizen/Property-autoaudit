@@ -291,7 +291,10 @@ def user_message(item):
 
 
 def messages_for(item):
-    return [{'role': 'system', 'content': SYSTEM_PROMPT}, {'role': 'user', 'content': user_message(item)}]
+    system = item.get('system_prompt', SYSTEM_PROMPT)
+    if item.get('custom_prompt'):
+        system += '\n\nAdditional review instructions:\n' + item['custom_prompt']
+    return [{'role': 'system', 'content': system}, {'role': 'user', 'content': user_message(item)}]
 
 
 def approx_tokens(text):
@@ -351,12 +354,14 @@ def decision_state(item):
 
 
 def decision_payload(model, item):
-    return {'model': model, 'state': decision_state(item), 'questions': DECISION_QUESTIONS}
+    questions = {key: {**value, 'instructions': value['instructions'] + ('\nAdditional review instructions: ' + item['custom_prompt'] if item.get('custom_prompt') else '')}
+                 for key, value in item.get('decision_questions', DECISION_QUESTIONS).items()}
+    return {'model': model, 'state': decision_state(item), 'questions': questions}
 
 
 def decision_tokens(item):
     """Input tokens of one decisions request (state + questions, about 4 characters a token)."""
-    text = json.dumps({'state': decision_state(item), 'questions': DECISION_QUESTIONS}, ensure_ascii=False, default=str)
+    text = json.dumps(decision_payload('', item), ensure_ascii=False, default=str)
     return max(1, round(len(text) / 4))
 
 
@@ -473,6 +478,11 @@ class ReviewScope(MatchingPeriods):
     model_config = ConfigDict(extra='forbid')
     model: str = Field(default=DEFAULT_MODEL, max_length=200)
     key_id: uuid.UUID | None = None
+    source: Literal['recent', 'match'] = 'recent'
+    found_from: str = ''
+    found_to: str = ''
+    prompt_id: uuid.UUID | None = None
+    custom_prompt: str = Field(default='', max_length=12000)
     directions: Literal['property', 'buyer', 'both'] = 'both'
     statuses: list[Literal['hot', 'warm', 'custom']] = Field(default_factory=lambda: list(STATUS_ORDER), min_length=1, max_length=3)
     group_keys: list[Annotated[str, Field(max_length=1000)]] | None = Field(default=None, max_length=500)
@@ -485,6 +495,11 @@ class ReviewScope(MatchingPeriods):
             return values
         values = dict(values)
         today = datetime.now(WIB).date()
+        # Existing API callers with explicit posting windows retain their manual scope.
+        values.setdefault('source', 'match' if any(key in values for key in MatchingPeriods.model_fields) else 'recent')
+        if values.get('source', 'recent') == 'recent':
+            values['found_from'] = values.get('found_from') or today.isoformat()
+            values['found_to'] = values.get('found_to') or values['found_from']
         # Explicit empty strings mean all dates. Preserve custom and legacy windows.
         for kind, start in (('buyer', today - timedelta(days=1)), ('listing', shift_month(today, -3))):
             if not any(key in values for key in (kind + '_date_from', kind + '_date_to', 'date_from', 'date_to')):
@@ -510,29 +525,125 @@ class ReviewScope(MatchingPeriods):
         return self.model_dump(mode='json', exclude={'model', 'key_id'})
 
 
+class SavedPrompt(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1, max_length=12000)
+    visibility: Literal['company', 'account'] = 'account'
+
+    @field_validator('name', 'content')
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError('Cannot be blank.')
+        return value.strip()
+
+
+def visible_prompt(conn, prompt_id, user):
+    row = conn.execute('''SELECT * FROM xm.ai_prompts WHERE id=%s
+      AND company_id=current_setting('xm.workspace_id')
+      AND (owner_id IS NULL OR owner_id=%s)''', (prompt_id, user['id'])).fetchone()
+    if not row:
+        raise HTTPException(404, 'Saved prompt not found.')
+    return row
+
+
+def resolve_prompt(conn, scope, request):
+    if not scope.prompt_id:
+        return scope.model_copy(update={'custom_prompt': scope.custom_prompt.strip()})
+    prompt = visible_prompt(conn, scope.prompt_id, current_user(request))
+    return scope.model_copy(update={'custom_prompt': prompt['content']})
+
+
+@router.get('/prompts')
+def list_prompts(request: Request):
+    user = current_user(request)
+    with connect() as conn:
+        rows = conn.execute('''SELECT id,name,content,owner_id,updated_at FROM xm.ai_prompts
+          WHERE company_id=current_setting('xm.workspace_id') AND (owner_id IS NULL OR owner_id=%s)
+          ORDER BY lower(name),id''', (user['id'],)).fetchall()
+    return {'prompts': rows, 'system_prompt': SYSTEM_PROMPT, 'decision_questions': DECISION_QUESTIONS,
+            'prompt_version': PROMPT_VERSION, 'decision_prompt_version': DECISION_PROMPT_VERSION}
+
+
+def check_prompt_write(user, visibility):
+    if visibility == 'company' and user['role'] not in ('admin', 'company_admin'):
+        raise HTTPException(403, 'Only an administrator can save company prompts.')
+
+
+@router.post('/prompts', status_code=201)
+def save_prompt(payload: SavedPrompt, request: Request):
+    user = current_user(request)
+    check_prompt_write(user, payload.visibility)
+    with connect() as conn:
+        row = conn.execute('''INSERT INTO xm.ai_prompts(id,company_id,owner_id,name,content,created_by)
+          VALUES(%s,current_setting('xm.workspace_id'),%s,%s,%s,%s) RETURNING id,name,content,owner_id,updated_at''',
+          (uuid.uuid4(), user['id'] if payload.visibility == 'account' else None, payload.name, payload.content, user['id'])).fetchone()
+        conn.commit()
+        return row
+
+
+@router.put('/prompts/{prompt_id}')
+def update_prompt(prompt_id: uuid.UUID, payload: SavedPrompt, request: Request):
+    user = current_user(request)
+    with connect() as conn:
+        existing = visible_prompt(conn, prompt_id, user)
+        check_prompt_write(user, 'account' if existing['owner_id'] else 'company')
+        check_prompt_write(user, payload.visibility)
+        row = conn.execute('''UPDATE xm.ai_prompts SET name=%s,content=%s,owner_id=%s,updated_at=now()
+          WHERE id=%s AND company_id=current_setting('xm.workspace_id') RETURNING id,name,content,owner_id,updated_at''',
+          (payload.name, payload.content, user['id'] if payload.visibility == 'account' else None, prompt_id)).fetchone()
+        conn.commit()
+        return row
+
+
+@router.delete('/prompts/{prompt_id}', status_code=204)
+def delete_prompt(prompt_id: uuid.UUID, request: Request):
+    user = current_user(request)
+    with connect() as conn:
+        existing = visible_prompt(conn, prompt_id, user)
+        check_prompt_write(user, 'account' if existing['owner_id'] else 'company')
+        conn.execute("DELETE FROM xm.ai_prompts WHERE id=%s AND company_id=current_setting('xm.workspace_id')", (prompt_id,))
+        conn.commit()
+
+
 def _part(row):
     return (row.get('segment_text') or row.get('raw_text') or '').strip()
 
 
 def collect_candidates(conn, scope):
     """(group_by, deduplicated pairs in review order, number of pairs found, scan truncated?)."""
-    from export_all import Filters, scope as export_scope
+    from export_all import Filters, scope as export_scope, recent_pairs
     from report import pair_status
     group_by = company_row(conn)['listing_group_by'] or 'sender'
     if not workspace_cache.ready(conn):
-        return group_by, [], 0, False
+        raise HTTPException(409, 'Results are being prepared. Please try again in a moment.')
     chosen = scope.chosen()
     wanted = set(scope.group_keys) if scope.group_keys is not None else None
     periods = scope.model_dump(include=set(MatchingPeriods.model_fields))
     found, truncated = [], False
     for direction in scope.direction_list():
-        filters = Filters(direction=direction, statuses=','.join(chosen), stock_status='ready', group_by=group_by, **periods)
+        filters = Filters(direction=direction, statuses=','.join(chosen), stock_status='ready', group_by=group_by,
+                          recent=scope.source == 'recent', found_from=scope.found_from, found_to=scope.found_to, **periods)
         _, eligible, params = export_scope(conn, None, filters)
         sources = conn.execute('WITH ' + eligible + ' SELECT id,group_key FROM eligible ORDER BY sent_at DESC NULLS LAST,id', params).fetchall()
         keys = {row['id']: row['group_key'] for row in sources if wanted is None or row['group_key'] in wanted}
         _, (target_clause, target_params) = filters.windows(direction)
         ids = list(keys)
         for start in range(0, len(ids), 100):
+            if scope.source == 'recent':
+                historical = recent_pairs(conn, eligible, params, ids[start:start + 100])
+                from matchlog import pair_explanations
+                reasons = pair_explanations(conn, [(a['entity_id'], b['entity_id']) if direction == 'buyer' else
+                                                 (b['entity_id'], a['entity_id']) for a, b in historical])
+                for rank, (source, target) in enumerate(historical):
+                    pair = (source['entity_id'], target['entity_id']) if direction == 'buyer' else (target['entity_id'], source['entity_id'])
+                    target['explanation'] = reasons.get(tuple(map(str, pair)), [])
+                    found.append({'direction': direction, 'source': source, 'target': target, 'status': target['status'],
+                                  'rank': rank, 'group_key': keys[source['id']]})
+                if len(found) >= SCAN_LIMIT:
+                    truncated = True
+                    break
+                continue
             groups = workspace_cache.recommendations(conn, direction, ids[start:start + 100], target_clause=target_clause,
                                                      target_params=target_params)['groups']
             for group in groups:
@@ -582,9 +693,12 @@ def plan_run(conn, scope):
     group_by, pairs, available, truncated = collect_candidates(conn, scope)
     version = prompt_version_for(scope.model)
     decision = version == DECISION_PROMPT_VERSION
+    if scope.custom_prompt.strip():
+        version += '-' + hashlib.sha256(scope.custom_prompt.strip().encode()).hexdigest()[:20]
     items = [review_item(candidate, group_by, index, scope.model) for index, candidate in enumerate(pairs[:scope.max_pairs])]
     for item in items:
         item['prompt_version'] = version
+        item['custom_prompt'] = scope.custom_prompt.strip()
     hashes = list(dict.fromkeys(item['input_hash'] for item in items))
     cached = set()
     if hashes:
@@ -598,7 +712,7 @@ def plan_run(conn, scope):
     if decision:  # no text output: input tokens only
         tokens_in, tokens_out = sum(decision_tokens(item) for item in calls), 0
     else:
-        tokens_in = sum(SYSTEM_TOKENS + approx_tokens(user_message(item)) for item in calls)
+        tokens_in = sum(SYSTEM_TOKENS + approx_tokens(item.get('custom_prompt', '')) + approx_tokens(user_message(item)) for item in calls)
         tokens_out = OUTPUT_TOKENS_GUESS * len(calls)
     info = model_info(scope.model)
     pricing = info.get('pricing')
@@ -621,8 +735,9 @@ def plan_run(conn, scope):
 
 
 @router.post('/review-runs/estimate')
-def estimate_run(scope: ReviewScope):
+def estimate_run(scope: ReviewScope, request: Request):
     with connect() as conn:
+        scope = resolve_prompt(conn, scope, request)
         _, estimate, _ = plan_run(conn, scope)
     return estimate
 
@@ -639,13 +754,15 @@ def create_run(scope: ReviewScope, request: Request):
     with connect() as conn:
         if scope.key_id and current_user(request)['role'] != 'admin':
             raise HTTPException(403, 'Only the platform administrator can choose an API key.')
+        scope = resolve_prompt(conn, scope, request)
         key_id = resolve_key_id(conn, scope.key_id)
         items, estimate, info = plan_run(conn, scope)
         if not items:
             raise HTTPException(400, 'Nothing to review for these filters. Widen the dates or choose more statuses.')
         run_id = uuid.uuid4()
         payload = {**scope.stored(), 'json_mode': info.get('json_mode') is not False, 'pricing': info.get('pricing'),
-                   'model_label': model_label(scope.model), 'kind': estimate['model_kind']}
+                   'model_label': model_label(scope.model), 'kind': estimate['model_kind'],
+                   'system_prompt': SYSTEM_PROMPT, 'decision_questions': DECISION_QUESTIONS}
         conn.execute('''INSERT INTO xm.ai_review_runs(id,company_id,created_by,key_id,model,prompt_version,group_by,payload,estimate)
           VALUES(%s,current_setting('xm.workspace_id'),%s,%s,%s,%s,%s,%s,%s)''',
           (run_id, current_user(request)['id'], key_id, scope.model, estimate['prompt_version'], estimate['group_by'], json.dumps(payload),
@@ -952,7 +1069,7 @@ def review_one(secret, run, item):
         pricing = payload.get('pricing')
         cost, estimated = None, True
         if pricing:
-            cost = (tokens_in or SYSTEM_TOKENS + approx_tokens(user_message(item))) * pricing['prompt'] + \
+            cost = (tokens_in or approx_tokens(messages_for(item)[0]['content']) + approx_tokens(user_message(item))) * pricing['prompt'] + \
                    (tokens_out or OUTPUT_TOKENS_GUESS) * pricing['completion']
     result = {'status': 'done', 'tokens_in': tokens_in, 'tokens_out': tokens_out, 'cost': cost, 'cost_estimated': estimated, 'error': None}
     content = _content(data)
@@ -1018,6 +1135,10 @@ def process_run_chunk(run_id, chunk=CHUNK):
             _finish(conn, run_id, 'completed')
             conn.commit()
             return
+        for item in items:
+            item['custom_prompt'] = (run['payload'] or {}).get('custom_prompt', '')
+            item['system_prompt'] = (run['payload'] or {}).get('system_prompt', SYSTEM_PROMPT)
+            item['decision_questions'] = (run['payload'] or {}).get('decision_questions', DECISION_QUESTIONS)
         unique = list({item['input_hash']: item for item in reversed(items)}.values())[::-1]
         # Earlier answers for the same texts, model and prompt version are reused without calling the API.
         cached = {row['input_hash']: row for row in conn.execute('''SELECT DISTINCT ON (input_hash) input_hash,direction,decision,
