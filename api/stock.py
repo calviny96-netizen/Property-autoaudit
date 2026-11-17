@@ -153,6 +153,31 @@ def overview():
         return _overview(conn, workspace_id())
 
 
+@router.get('/listings')
+def sales_listings(phone: str, limit: int = 100, offset: int = 0):
+    """The same entity/phone population as phone_counts, independent of matching filters/cache."""
+    phone = one_phone(phone)
+    limit = min(max(limit, 1), 200)
+    with connect() as conn:
+        if not conn.execute("SELECT 1 FROM xm.tracked_sales WHERE company_id=current_setting('xm.workspace_id') AND phone=%s", (phone,)).fetchone():
+            raise HTTPException(404, 'This sales number is not on your company watchlist.')
+        rows = conn.execute('''WITH inventory AS (
+          SELECT DISTINCT ON (e.entity_id) d.*, e.public_id, e.status AS entity_status,
+            r.raw_text, r.sent_at, r.author, r.chat_name,
+            max(r.sent_at) OVER (PARTITION BY e.entity_id) AS last_seen_at
+          FROM xm.documents d JOIN xm.entities e ON e.entity_id=d.entity_id AND e.company_id=d.company_id
+          JOIN xm.raw_messages r ON r.id=d.raw_message_id
+          WHERE d.company_id=current_setting('xm.workspace_id') AND d.active
+            AND d.document_type='property_listing' AND e.status IN ('ready','on_hold','sold')
+            AND (d.contact_phones @> ARRAY[%s]::text[] OR d.contact_phone=%s)
+          ORDER BY e.entity_id,r.sent_at DESC NULLS LAST,d.id)
+          SELECT *,count(*) OVER () AS total FROM inventory
+          ORDER BY last_seen_at DESC NULLS LAST,entity_id LIMIT %s OFFSET %s''',
+          (phone, phone, limit + 1, max(0, offset))).fetchall()
+    return {'rows': rows[:limit], 'has_more': len(rows) > limit,
+            'total': rows[0]['total'] if rows else 0}
+
+
 @router.put('/tracked')
 def save_tracked(payload: TrackedPayload, request: Request):
     """Replace the tracked numbers. Company-level setting; only a company admin may change it."""

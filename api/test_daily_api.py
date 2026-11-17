@@ -21,7 +21,7 @@ class ReviewDefaultsTests(unittest.TestCase):
             scope = ReviewScope()
         self.assertEqual((scope.buyer_date_from, scope.buyer_date_to), ('2026-10-26', '2026-10-27'))
         self.assertEqual((scope.listing_date_from, scope.listing_date_to), ('2026-07-27', '2026-10-27'))
-        self.assertEqual((scope.max_pairs, scope.model), (150, DEFAULT_MODEL))
+        self.assertEqual((scope.max_pairs, scope.model), (100, DEFAULT_MODEL))
         all_dates = ReviewScope(buyer_date_from='', buyer_date_to='', listing_date_from='', listing_date_to='')
         self.assertEqual(all_dates.buyer_date_from, '')
         self.assertEqual(all_dates.listing_date_from, '')

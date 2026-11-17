@@ -168,6 +168,15 @@ export default function DashboardPage({ navigate, params }: { navigate?: Navigat
         </Panel>
       )}
 
+      {data?.posting_activity && !empty && (
+        <Panel title="WhatsApp posting activity"
+          description="By weekday and hour sent (WIB) for the selected period. Each buyer request or listing counts once per calendar hour."
+          bodyClassName="space-y-6">
+          <PostingHeatmap title="Buyer requests" counts={data.posting_activity.buyers} color={colors.blue} />
+          <PostingHeatmap title="Listings" counts={data.posting_activity.listings} color={colors.cyan} />
+        </Panel>
+      )}
+
       {data && data.insights.length > 0 && !empty && (
         <Panel title={<span className="flex items-center gap-2"><Lightbulb className="size-5 text-warning" aria-hidden="true" />Highlights</span>} description="Worked out from the data of this period.">
           <ul className="space-y-2.5">
@@ -275,6 +284,62 @@ export default function DashboardPage({ navigate, params }: { navigate?: Navigat
 
       <p className="text-center text-caption text-muted">Dates and times are in WIB. Weeks start on Monday.</p>
     </div>
+  );
+}
+
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
+const clockHour = (hour: number) => String(hour).padStart(2, '0');
+
+function PostingHeatmap({ title, counts, color }: { title: string; counts: number[][]; color: string }) {
+  const totals = HOURS.map((hour) => counts.reduce((sum, day) => sum + day[hour], 0));
+  const peak = Math.max(...totals);
+  const busiestHours = HOURS.filter((hour) => totals[hour] === peak);
+  const maxCell = Math.max(...counts.flat());
+  return (
+    <section className="min-w-0 space-y-2">
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      {peak > 0 ? (
+        <>
+          <p className="text-sm text-muted">
+            Busiest {busiestHours.length === 1 ? 'hour' : 'hours'}{' '}
+            <strong className="text-foreground">
+              {busiestHours.length === 24 ? 'All 24 hours' : busiestHours.map((hour) => (
+                `${clockHour(hour)}:00–${clockHour(hour)}:59`
+              )).join(', ')} WIB
+            </strong>{' '}
+            · {number(peak)} {busiestHours.length > 1 ? 'each' : 'total'}
+          </p>
+          {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard users need to reach the scroll container. */}
+          <section className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-accent" tabIndex={0} aria-label={`${title} heatmap, scroll to see all hours`}>
+            <table className="w-full min-w-max border-separate border-spacing-1 text-center text-xs tabular-nums">
+              <caption className="sr-only">{title} by weekday and hour in WIB</caption>
+              <thead>
+                <tr>
+                  <th scope="col" className="text-left font-medium text-muted">Day</th>
+                  {HOURS.map((hour) => <th key={hour} scope="col" className="min-w-8 font-medium text-muted">{clockHour(hour)}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {WEEKDAYS.map((day, index) => (
+                  <tr key={day}>
+                    <th scope="row" className="pr-1 text-left font-medium text-muted">{day}</th>
+                    {counts[index].map((count, hour) => (
+                      <td key={hour} className={`h-7 rounded px-1 ${count ? 'font-medium text-foreground' : 'bg-default text-muted'}`}
+                        style={count ? { backgroundColor: `color-mix(in srgb, ${color} ${12 + 36 * count / maxCell}%, transparent)` } : undefined}
+                        title={`${day} ${clockHour(hour)}:00–${clockHour(hour)}:59 WIB · ${number(count)}`}>
+                        {number(count)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+          <p className="text-caption text-muted">Darker cells show more activity within this heatmap.</p>
+        </>
+      ) : <p className="text-sm text-muted">No posts in this period.</p>}
+    </section>
   );
 }
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Avatar, Button, Drawer, Spinner, toast, useOverlayState } from '@heroui/react';
-import { Bot, Boxes, Building2, ChevronRight, LayoutDashboard, LogOut, Menu, Settings, Sparkles, UploadCloud, UserRound, UserSearch, Users, Workflow } from 'lucide-react';
+import { Bot, Boxes, Building2, ChevronRight, History, LayoutDashboard, LogOut, Menu, Settings, Sparkles, UploadCloud, UserRound, UserSearch, Users, Workflow } from 'lucide-react';
 import { etaShort } from '@/components/app/processing-progress';
 import { DATA_CHANGED_EVENT, type DataChangedDetail } from '@/lib/api';
 import { ROLE_LABELS, initials } from '@/lib/format';
@@ -160,7 +160,8 @@ function useNav(settingsHint?: string) {
     ...(allowed('buyers') ? [{ id: ROUTES.buyers, label: 'Buyers', icon: UserSearch }] : []),
   ];
   const manage: NavItem[] = [
-    ...(perms?.upload_data ? [{ id: ROUTES.upload, label: 'Upload', icon: UploadCloud }] : []),
+    ...(allowed('match') ? [{ id: ROUTES.tracker, label: 'Matching tracker', icon: History }] : []),
+    ...(user.role === 'admin' && perms?.upload_data ? [{ id: ROUTES.upload, label: 'Upload', icon: UploadCloud }] : []),
     ...(perms?.manage_team ? [{ id: ROUTES.team, label: 'Team', icon: Users }] : []),
     ...(perms?.jev_review ? [{ id: ROUTES.jev, label: 'AI Review', icon: Bot }] : []),
     { id: ROUTES.settings, label: 'Settings', icon: Settings, hint: settingsHint },

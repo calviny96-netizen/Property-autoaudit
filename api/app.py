@@ -633,3 +633,6 @@ from platform_admin import router as platform_router
 app.include_router(platform_router)
 from knowledge import router as knowledge_router
 app.include_router(knowledge_router)
+
+from matching_tracker import router as matching_tracker_router
+app.include_router(matching_tracker_router)

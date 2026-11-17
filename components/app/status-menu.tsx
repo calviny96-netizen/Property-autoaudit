@@ -29,7 +29,7 @@ export function StatusMenu({ status = 'ready', name, onChoose, kind }: { status?
   const options = kind === 'buyer' ? OPTIONS.map((option) => (option.id === 'deleted' ? DISABLE_OPTION : option)) : OPTIONS;
   return (
     <Dropdown>
-      <Dropdown.Trigger aria-label={`Change status of ${name}`} className={buttonVariants({ variant: 'tertiary', isIconOnly: true, size: 'md' })}>
+      <Dropdown.Trigger aria-label={`Change status of ${name}`} className={buttonVariants({ variant: 'tertiary', isIconOnly: true, size: 'md', className: 'entity-status-trigger' })}>
         <EllipsisVertical className="size-5" aria-hidden="true" />
       </Dropdown.Trigger>
       <Dropdown.Popover placement="bottom end" className="min-w-64">

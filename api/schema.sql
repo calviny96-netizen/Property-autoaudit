@@ -270,6 +270,8 @@ END $$;
 
 -- Company-level settings live in the existing per-workspace preferences row.
 ALTER TABLE xm.app_preferences ADD COLUMN IF NOT EXISTS company_name text;
+-- Null keeps the original page defaults until a platform admin explicitly saves shared periods.
+ALTER TABLE xm.app_preferences ADD COLUMN IF NOT EXISTS matching_filter_defaults jsonb;
 ALTER TABLE xm.app_preferences ADD COLUMN IF NOT EXISTS search_locked boolean NOT NULL DEFAULT false;
 ALTER TABLE xm.app_preferences ADD COLUMN IF NOT EXISTS listing_group_by text NOT NULL DEFAULT 'sender';
 ALTER TABLE xm.app_preferences ADD COLUMN IF NOT EXISTS matching_mode text NOT NULL DEFAULT 'company'
@@ -608,6 +610,9 @@ CREATE TABLE IF NOT EXISTS xm.ai_review_runs (
  finished_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS ai_review_runs_company_idx ON xm.ai_review_runs(company_id, created_at DESC);
+ALTER TABLE xm.app_preferences ADD COLUMN IF NOT EXISTS ai_review_credits_used integer NOT NULL DEFAULT 0 CHECK (ai_review_credits_used >= 0);
+ALTER TABLE xm.ai_review_runs ADD COLUMN IF NOT EXISTS request_id uuid;
+CREATE UNIQUE INDEX IF NOT EXISTS ai_review_request_idx ON xm.ai_review_runs(company_id, request_id) WHERE request_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ai_review_runs_pending_idx ON xm.ai_review_runs(created_at) WHERE status IN ('queued','running');
 -- One row per reviewed pair. buyer_text/listing_text are exactly the texts sent to the model
 -- (part text without the signature); input_hash = sha256 of both, the cache key with model + prompt_version.

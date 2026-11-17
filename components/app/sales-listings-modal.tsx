@@ -11,7 +11,7 @@ import type { Row } from '@/lib/types';
 import { useData } from '@/lib/use-data';
 import { useApi } from '@/lib/workspace-context';
 
-type Page = { rows: Row[]; has_more: boolean };
+type Page = { rows: Row[]; has_more: boolean; total: number };
 
 /** First non-empty line of the message: what an agent would call the headline of the listing. */
 const headline = (text: string) => (text.split('\n').map((line) => line.replace(/[*_~]+/g, '').trim()).find(Boolean) ?? 'Untitled listing').slice(0, 140);
@@ -21,7 +21,7 @@ export function SalesListingsModal({ state, phone, name }: { state: ReturnType<t
   return (
     <Modal.Backdrop isOpen={state.isOpen} onOpenChange={(open) => state.setOpen(open)}>
       <Modal.Container size="lg" scroll="inside">
-        <Modal.Dialog>{state.isOpen && phone ? <Body phone={phone} name={name} onClose={() => state.close()} /> : null}</Modal.Dialog>
+        <Modal.Dialog>{state.isOpen && phone ? <Body key={phone} phone={phone} name={name} onClose={() => state.close()} /> : null}</Modal.Dialog>
       </Modal.Container>
     </Modal.Backdrop>
   );
@@ -33,15 +33,15 @@ function Body({ phone, name, onClose }: { phone: string; name: string; onClose: 
   const [more, setMore] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   // Every listing of this number: any match status, ready / on hold / sold, no keyword filter.
-  const params = { direction: 'property', phones: phone, statuses: 'hot,warm,custom,unmatched', stock_status: 'ready,on_hold,sold', search: '' };
-  const first = useData((signal) => api.get<Page>(`/workspace?${query({ ...params, offset: 0 })}`, signal), [phone]);
+  const params = { phone };
+  const first = useData((signal) => api.get<Page>(`/stock/listings?${query({ ...params, offset: 0 })}`, signal), [phone]);
   const rows = [...(first.data?.rows ?? []), ...extra];
   const hasMore = more ?? !!first.data?.has_more;
 
   async function loadMore() {
     setBusy(true);
     try {
-      const page = await api.get<Page>(`/workspace?${query({ ...params, offset: rows.length })}`);
+      const page = await api.get<Page>(`/stock/listings?${query({ ...params, offset: rows.length })}`);
       setExtra((current) => [...current, ...page.rows]); setMore(page.has_more);
     } catch (reason) {
       toast.danger(errorMessage(reason, 'More listings could not be loaded. Please try again.'));
@@ -53,7 +53,7 @@ function Body({ phone, name, onClose }: { phone: string; name: string; onClose: 
       <Modal.CloseTrigger />
       <Modal.Header>
         <Modal.Heading>{name ? `Listings · ${name}` : 'Listings'}</Modal.Heading>
-        <p className="mt-1 text-sm text-muted tabular-nums">{formatPhone(phone)}{first.data ? ` · ${rows.length}${hasMore ? '+' : ''} shown` : ''}</p>
+        <p className="mt-1 text-sm text-muted tabular-nums">{formatPhone(phone)}{first.data ? ` · ${rows.length} of ${first.data.total} listings` : ''}</p>
       </Modal.Header>
       <Modal.Body className="space-y-3">
         <ErrorNotice message={first.error} onRetry={first.reload} />

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Button, Input, Label, ListBox, SearchField, Select, TextField, toast } from '@heroui/react';
 import { Bot, KeyRound, Play, UsersRound } from 'lucide-react';
 import {
@@ -15,11 +15,11 @@ import { usd } from '@/lib/jev';
 import type { AiKey, AiModels, ExportPlan, JevDirections, JevEstimate, JevRun, JevScope, MatchStatus, Temperature } from '@/lib/types';
 import { useData, useDebounced } from '@/lib/use-data';
 import { cn } from '@/lib/utils';
-import { useSession } from '@/lib/session';
+import { useCompany, useSession } from '@/lib/session';
 import { useApi } from '@/lib/workspace-context';
 
 const STATUSES: readonly Temperature[] = ['hot', 'warm', 'custom'];
-const presets = () => periodPresets(['all', 'today', 'yesterday', 'today_yesterday', 'week', 'month', 'last_month', 'last_1_month', 'last_3_months']);
+const presets = () => periodPresets(['all', 'today', 'yesterday', 'today_yesterday', 'last_3_days', 'last_7_days', 'last_14_days', 'week', 'month', 'last_month', 'last_1_month', 'last_3_months']);
 const DIRECTION_OPTIONS: { id: JevDirections; label: string }[] = [
   { id: 'both', label: 'Both directions' }, { id: 'property', label: 'Listing → Buyer' }, { id: 'buyer', label: 'Buyer → Listing' },
 ];
@@ -32,19 +32,22 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
 }) {
   const api = useApi();
   const { user } = useSession();
+  const { company } = useCompany();
   const technical = user.role === 'admin';
+  const credits = useData((signal) => api.get<{ total: number; remaining: number; used: number }>('/ai/credits', signal), []);
+  const attempt = useRef<{ scope: string; id: string } | null>(null);
   const [modelChoice, setModel] = useState<string | null>(null);
-  const model = modelChoice ?? models?.default_model ?? 'typesafe/jev-1.13';
+  const model = modelChoice ?? models?.default_model ?? 'z-ai/glm-5.3-flash';
   const [keyChoice, setKey] = useState<string | null>(null);
   const keyId = keyChoice && keys.some((key) => key.id === keyChoice) ? keyChoice : keys.find((key) => key.is_default)?.id ?? keys[0]?.id ?? '';
-  const [source, setSource] = useState<'recent' | 'match'>('recent');
+  const [source, setSource] = useState<'recent' | 'match'>(() => company?.matching_filter_defaults ? 'match' : 'recent');
   const [foundPeriod, setFoundPeriod] = useState<Period>(() => periodFor('today'));
   const [customPrompt, setCustomPrompt] = useState('');
   const [directions, setDirections] = useState<JevDirections>('both');
-  const [buyerPeriod, setBuyerPeriod] = useState<Period>(() => periodFor('today_yesterday'));
-  const [listingPeriod, setListingPeriod] = useState<Period>(() => periodFor('last_3_months'));
+  const [buyerPeriod, setBuyerPeriod] = useState<Period>(() => periodFor(company?.matching_filter_defaults?.buyer_period ?? 'today_yesterday'));
+  const [listingPeriod, setListingPeriod] = useState<Period>(() => periodFor(company?.matching_filter_defaults?.listing_period ?? 'last_3_months'));
   const [statuses, setStatuses] = useState<Temperature[]>([...STATUSES]);
-  const [maxPairs, setMaxPairs] = useState('150');
+  const [maxPairs, setMaxPairs] = useState('100');
   // null = every sender / sales contact; a set = only these raw group keys.
   const [picked, setPicked] = useState<Set<string> | null>(null);
   const [starting, setStarting] = useState(false);
@@ -79,7 +82,7 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
   const groupKeys = useMemo(() => (picked ? groups.map((group) => group.key).filter((key) => picked.has(key)) : undefined), [picked, groups]);
 
   const scope: JevScope = useMemo(() => ({
-    source, custom_prompt: customPrompt, model, key_id: technical ? keyId || undefined : undefined, directions, statuses, max_pairs: limitOk ? limit : 150,
+    source, custom_prompt: customPrompt, model, key_id: technical ? keyId || undefined : undefined, directions, statuses, max_pairs: limitOk ? limit : 100,
     buyer_date_from: periods.buyer_date_from, buyer_date_to: periods.buyer_date_to,
     listing_date_from: periods.listing_date_from, listing_date_to: periods.listing_date_to,
     found_from: periods.found_from, found_to: periods.found_to,
@@ -94,21 +97,33 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
     if (starting || (technical && !keyId)) return;
     setStarting(true); setStartError('');
     try {
-      const run = await api.post<JevRun>('/ai/review-runs', scope);
+      const fingerprint = JSON.stringify(scope);
+      if (!attempt.current || attempt.current.scope !== fingerprint) attempt.current = { scope: fingerprint, id: crypto.randomUUID() };
+      const run = await api.post<JevRun>('/ai/review-runs', { ...scope, request_id: attempt.current.id });
+      attempt.current = null;
       toast.success('AI Review started', { description: `${countLabel(run.total, 'pair')} are being reviewed. You can leave this page.` });
       onStarted(run);
-    } catch (reason) { setStartError(errorMessage(reason, 'The review could not be started. Please try again.')); } finally { setStarting(false); }
+    } catch (reason) { setStartError(errorMessage(reason, 'The review could not be started. Please try again.')); } finally { setStarting(false); credits.reload(); }
   }
 
   const data = estimate.data;
   const byPhone = (plan.data?.group_by ?? data?.group_by) === 'phone';
   const unit: [string, string] = byPhone ? ['sales contact', 'sales contacts'] : ['sender', 'senders'];
-  const canStart = !plan.loading && !plan.error && (!technical || !!keyId) && limitOk && !!data && data.pairs > 0 && !stale && !estimate.loading && !(groupKeys && groupKeys.length === 0);
+  const canStart = (technical || !!credits.data?.remaining) && !plan.loading && !plan.error && (!technical || !!keyId) && limitOk && !!data && data.pairs > 0 && !stale && !estimate.loading && !(groupKeys && groupKeys.length === 0);
 
   return (
     <Panel title={<span className="flex items-center gap-2"><Bot className="size-5 text-accent" aria-hidden="true" />New review</span>}
       description="Jev reads each pair the matching rules found and says whether it is worth recommending. Nothing changes in your matches.">
       <div className="space-y-6 [&_.toggle-button]:min-w-0 [&_.toggle-button]:whitespace-normal [&_.toggle-button]:px-2 [&_.search-field__input]:min-w-0 [&_.search-field__input]:w-full">
+        {!technical && <section className="rounded-2xl border border-accent/20 bg-accent-soft/40 p-4" aria-label="AI Review credits">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="font-semibold">AI Review credits</h3>
+            <span className="text-xl font-semibold tabular-nums">{credits.data ? `${credits.data.remaining} / ${credits.data.total}` : '…'} <span className="text-sm font-normal">remaining</span></span>
+          </div>
+          <p className="mt-2 text-sm text-muted">1 manual review run = 1 credit, shared across your company. A run can review up to the selected “Most pairs” limit. No automatic reset.</p>
+          {credits.data?.remaining === 0 && <p className="mt-2 text-sm text-danger">No credits left. Contact your administrator.</p>}
+          <ErrorNotice message={credits.error} onRetry={credits.reload} />
+        </section>}
         <FilterGroup label="Review source" hint="Recent Match uses the date a new pair was found during upload. Match uses the posting dates you choose.">
           <Segmented label="Review source" value={source} onChange={(next) => { setSource(next); setPicked(null); }} options={[{ id: 'recent', label: 'Recent Match' }, { id: 'match', label: 'Match · custom dates' }]} fullWidth />
         </FilterGroup>
@@ -164,13 +179,13 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
 
         <PeoplePicker groups={groups} loading={plan.loading} error={plan.error} onRetry={plan.reload} unit={unit} picked={picked} onPick={setPicked} />
 
-        <EstimateBox estimate={data} loading={plan.loading || estimate.loading || stale} error={estimate.error} onRetry={estimate.reload} empty={!!groupKeys && groupKeys.length === 0} unit={unit} />
+        <EstimateBox estimate={data} loading={plan.loading || estimate.loading || stale} error={estimate.error} onRetry={estimate.reload} empty={!!groupKeys && groupKeys.length === 0} unit={unit} technical={technical} />
 
         <ErrorNotice message={startError} title="The review did not start" />
         <div className="flex flex-wrap items-center justify-end gap-3">
           {technical && !keyId && <p className="text-sm text-muted">An API key is needed to start.</p>}
           <Button size="lg" isPending={starting} isDisabled={!canStart} onPress={start}><Play className="size-4" aria-hidden="true" />
-            {data && data.pairs ? `Start review of ${countLabel(data.pairs, 'pair')}` : 'Start review'}</Button>
+            {data && data.pairs ? `Start review · ${countLabel(data.pairs, 'pair')}${technical ? '' : ' · 1 credit'}` : 'Start review'}</Button>
         </div>
       </div>
     </Panel>
@@ -238,8 +253,8 @@ function PeoplePicker({ groups, loading, error, onRetry, unit, picked, onPick }:
   );
 }
 
-function EstimateBox({ estimate, loading, error, onRetry, empty, unit }: {
-  estimate?: JevEstimate; loading: boolean; error: string; onRetry: () => void; empty: boolean; unit: [string, string];
+function EstimateBox({ estimate, loading, error, onRetry, empty, unit, technical }: {
+  estimate?: JevEstimate; loading: boolean; error: string; onRetry: () => void; empty: boolean; unit: [string, string]; technical: boolean;
 }) {
   if (empty) return <Notice status="warning">Select at least one {unit[0]}, or select all.</Notice>;
   if (error) return <ErrorNotice message={error} onRetry={onRetry} title="The estimate could not be made" />;
@@ -253,7 +268,7 @@ function EstimateBox({ estimate, loading, error, onRetry, empty, unit }: {
         <span className="mr-1 text-body font-semibold text-foreground">{countLabel(estimate.pairs, 'pair')} to review</span>
         {STATUSES.map((status) => (estimate.by_status[status] ? <StatusBadge key={status} status={status} count={estimate.by_status[status]} size="sm" explain={false} /> : null))}
       </div>
-      {estimate.to_call === 0 ? (
+      {!technical ? <p className="text-sm text-muted">This manual run uses 1 credit. Previously reviewed pairs may reuse saved results.</p> : estimate.to_call === 0 ? (
         <p className="text-sm text-muted">Every pair was already reviewed with this model and prompt. Jev’s earlier answers are reused at no cost.</p>
       ) : (
         <p className="text-sm text-muted">

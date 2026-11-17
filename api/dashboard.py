@@ -261,6 +261,31 @@ def _distinct(conn, document_type, start, end):
     return row['n']
 
 
+def _posting_activity(conn, low, high, scope_sql, scope_params):
+    """Count each entity once per calendar hour, then group those counts by weekday and hour in WIB."""
+    rows = conn.execute(
+        '''WITH hourly AS (
+             SELECT d.document_type, date_trunc('hour', r.sent_at) AS slot, count(DISTINCT d.entity_id) AS n
+             FROM xm.documents d JOIN xm.raw_messages r ON r.id = d.raw_message_id
+             JOIN xm.entities e ON e.entity_id = d.entity_id
+             WHERE d.company_id = current_setting('xm.workspace_id') AND d.active AND e.status <> 'deleted'
+               AND d.document_type IN ('buyer_request', 'property_listing')
+               AND r.sent_at >= %s AND r.sent_at < %s''' + scope_sql + '''
+             GROUP BY 1, 2
+           )
+           SELECT document_type, extract(isodow FROM slot)::int AS weekday,
+                  extract(hour FROM slot)::int AS hour, sum(n)::bigint AS n
+           FROM hourly
+           GROUP BY 1, 2, 3''', [low, high, *scope_params]).fetchall()
+    by_type = {
+        'buyer_request': [[0] * 24 for _ in range(7)],
+        'property_listing': [[0] * 24 for _ in range(7)],
+    }
+    for row in rows:
+        by_type[row['document_type']][row['weekday'] - 1][row['hour']] = row['n']
+    return {'buyers': by_type['buyer_request'], 'listings': by_type['property_listing']}
+
+
 def _match_counts(conn, start, end):
     low = datetime.combine(start, time.min, WIB)
     high = datetime.combine(end + timedelta(days=1), time.min, WIB)
@@ -302,7 +327,7 @@ def _imports_version():
 @router.get('/overview')
 def overview(period: Literal['week', 'last_week', 'month', 'last_month', 'last30', 'custom'] = DEFAULT_PERIOD,
              date_from: str = '', date_to: str = '', refresh: bool = False):
-    return daily_snapshot(workspace_id(), ('overview', period, date_from, date_to),
+    return daily_snapshot(workspace_id(), ('overview', 2, period, date_from, date_to),
                           lambda: compute_overview(period, date_from, date_to), refresh=refresh)
 
 
@@ -319,6 +344,7 @@ def compute_overview(period, date_from, date_to):
         scope_sql, scope_params = document_scope_filter(conn)
         buyer_daily = _daily(conn, 'buyer_request', start, end)
         listing_daily = _daily(conn, 'property_listing', start, end)
+        posting_activity = _posting_activity(conn, low, high, scope_sql, scope_params)
         kpi = {
             'buyers': _distinct(conn, 'buyer_request', start, end),
             'listings': _distinct(conn, 'property_listing', start, end),
@@ -424,6 +450,7 @@ def compute_overview(period, date_from, date_to):
                 'matches_change': change(match_total, prev_total)},
         'trend': {'labels': labels_x, 'buyers': buyers_series, 'listings': listings_series,
                   'matches': match_series, 'matches_hot': hot_series, 'matches_custom': custom_series},
+        'posting_activity': posting_activity,
         'categories': categories, 'transactions': transactions,
         # Ready stock per property type (every listing counted once), for the stock chart.
         'stock_categories': [{'key': key, 'label': CATEGORY_LABELS.get(key, key), 'value': value}

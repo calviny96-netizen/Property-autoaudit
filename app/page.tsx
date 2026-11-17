@@ -16,6 +16,7 @@ const loading = () => <SkeletonList rows={3} />;
 const DashboardPage = dynamic(() => import('@/components/pages/dashboard-page'), { ssr: false, loading });
 const MatchPage = dynamic(() => import('@/components/pages/match-page'), { ssr: false, loading });
 const RecentPage = dynamic(() => import('@/components/pages/recent-page'), { ssr: false, loading });
+const MatchingTrackerPage = dynamic(() => import('@/components/pages/matching-tracker-page'), { ssr: false, loading });
 const StockPage = dynamic(() => import('@/components/pages/stock-page'), { ssr: false, loading });
 const BuyersPage = dynamic(() => import('@/components/pages/buyers-page'), { ssr: false, loading });
 const UploadPage = dynamic(() => import('@/components/pages/upload-page'), { ssr: false, loading });
@@ -50,7 +51,8 @@ function CompanyWorkspace() {
   // Pages a role may not open fall back to Home rather than showing an error.
   let page = path;
   if (!company) page = ROUTES.home;
-  else if (page === ROUTES.upload && !perms?.upload_data) page = ROUTES.home;
+  else if (page === ROUTES.upload && (user.role !== 'admin' || !perms?.upload_data)) page = ROUTES.home;
+  else if (page === ROUTES.tracker && perms?.pages?.match === false) page = ROUTES.home;
   else if (page === ROUTES.team && !perms?.manage_team) page = ROUTES.home;
   else if (page === ROUTES.companies && user.role !== 'admin') page = ROUTES.home;
   else if (page === ROUTES.jev && !perms?.jev_review) page = ROUTES.home;
@@ -69,6 +71,7 @@ function CompanyWorkspace() {
     switch (page) {
       case ROUTES.match: return <MatchPage params={params} navigate={navigate} />;
       case ROUTES.recent: return <RecentPage navigate={navigate} />;
+      case ROUTES.tracker: return <MatchingTrackerPage />;
       case ROUTES.stock: return <StockPage navigate={navigate} />;
       case ROUTES.buyers: return <BuyersPage navigate={navigate} />;
       case ROUTES.upload: return <UploadPage navigate={navigate} />;

@@ -3,8 +3,9 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from psycopg.errors import UniqueViolation
+from psycopg.types.json import Jsonb
 
 import activity
 from access import permissions
@@ -19,7 +20,7 @@ router = APIRouter()
 
 def company_row(conn):
     return conn.execute(
-        """SELECT company_name, search_terms, search_locked, listing_group_by, matching_mode
+        """SELECT company_name, search_terms, search_locked, listing_group_by, matching_mode, matching_filter_defaults
            FROM xm.app_preferences WHERE company_id = current_setting('xm.workspace_id')""").fetchone() or {
         'company_name': None, 'search_terms': [], 'search_locked': False, 'listing_group_by': 'sender', 'matching_mode': 'company'}
 
@@ -47,6 +48,7 @@ def get_company_settings(request: Request):
     return {
         'company_id': workspace_id(), 'company_name': company['company_name'], 'listing_group_by': company['listing_group_by'],
         'matching_mode': company['matching_mode'],
+        'matching_filter_defaults': company.get('matching_filter_defaults'),
         'search_locked': company['search_locked'], 'search_terms': company['search_terms'],
         'personal_terms': mine, 'effective_terms': effective_terms(user['role'], company, mine),
         'tracked_phones': phones, 'role': user['role'],
@@ -54,16 +56,31 @@ def get_company_settings(request: Request):
     }
 
 
+FilterPeriod = Literal['all', 'today', 'today_yesterday', 'last_3_days', 'last_7_days',
+                       'last_14_days', 'last_1_month', 'last_3_months']
+
+
+class MatchingFilterDefaults(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    listing_period: FilterPeriod
+    buyer_period: FilterPeriod
+
+
 class CompanyUpdate(BaseModel):
     company_name: str | None = Field(default=None, min_length=1, max_length=120)
     listing_group_by: Literal['sender', 'phone'] | None = None
     search_locked: bool | None = None
     matching_mode: Literal['company', 'sales'] | None = None
+    matching_filter_defaults: MatchingFilterDefaults | None = None
 
 
 @router.put('/company/settings')
 def put_company_settings(payload: CompanyUpdate, request: Request):
     changes = payload.model_dump(exclude_none=True)
+    if 'matching_filter_defaults' in changes:
+        if current_user(request)['role'] != 'admin':
+            raise HTTPException(403, 'Only the platform administrator can set default matching filters.')
+        changes['matching_filter_defaults'] = Jsonb(changes['matching_filter_defaults'])
     if 'company_name' in changes:
         changes['company_name'] = changes['company_name'].strip()
         if not changes['company_name']:

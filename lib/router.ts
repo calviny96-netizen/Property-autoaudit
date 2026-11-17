@@ -12,6 +12,7 @@ export const ROUTES = {
   match: 'cocokkan',
   recent: 'match-baru',
   stock: 'stok',
+  tracker: 'matching-tracker',
   buyers: 'buyers',
   upload: 'data',
   team: 'tim',

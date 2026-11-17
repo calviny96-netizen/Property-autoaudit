@@ -59,6 +59,8 @@ def required_feature(method: str, path: str):
         return 'jev'
     if _under(path, '/imports'):
         return 'upload'
+    if _under(path, '/matching-tracker'):
+        return 'match'
     if _under(path, '/dashboard'):
         return 'home'
     if _under(path, '/stock'):
@@ -149,7 +151,7 @@ def permissions(role: str, search_locked: bool = False, features=None) -> dict:
         'platform': role == 'admin',
         'manage_team': 'team' in granted,
         'manage_settings': 'settings' in granted,
-        'upload_data': 'upload' in granted,
+        'upload_data': role == 'admin',
         'edit_company_search': 'settings' in granted,
         'edit_personal_search': (role == 'user') and not search_locked,
         'mark_status': 'mark_status' in granted,

@@ -61,10 +61,14 @@ export type Permissions = {
   all_features?: boolean;
 };
 
+export type MatchingFilterPeriod = 'all' | 'today' | 'today_yesterday' | 'last_3_days' | 'last_7_days' | 'last_14_days' | 'last_1_month' | 'last_3_months';
+export type MatchingFilterDefaults = { listing_period: MatchingFilterPeriod; buyer_period: MatchingFilterPeriod };
+
 export type CompanySettings = {
   company_name: string | null;
   listing_group_by: GroupBy;
   matching_mode: MatchingMode;
+  matching_filter_defaults?: MatchingFilterDefaults | null;
   search_locked: boolean;
   search_terms: string[];
   personal_terms: string[] | null;
@@ -360,6 +364,8 @@ export type Dashboard = {
     matches: number; matches_hot: number; matches_custom?: number; matches_prev: number; matches_change: number | null;
   };
   trend: { labels: string[]; buyers: number[]; listings: number[]; matches: number[]; matches_hot: number[]; matches_custom?: number[] };
+  /** Counts by WIB weekday (Monday first) and hour (00–23). */
+  posting_activity?: { buyers: number[][]; listings: number[][] };
   categories: { key: string; label: string; value: number }[];
   /** Ready listings per property type (older servers omit it). */
   stock_categories?: { key: string; label: string; value: number }[];
@@ -556,7 +562,7 @@ export type JevRun = {
   id: string; model: string; model_label: string; prompt_version: string; group_by: GroupBy; status: JevRunStatus; error: string | null;
   created_at: string; started_at: string | null; finished_at: string | null; key_id: string | null; key_label: string | null;
   key_masked: string | null; created_by_name: string | null;
-  payload: Partial<JevScope> & { model_label?: string; system_prompt?: string; decision_questions?: Record<string, unknown> }; estimate: Partial<JevEstimate>;
+  payload: Partial<JevScope> & { credits_charged?: number; model_label?: string; system_prompt?: string; decision_questions?: Record<string, unknown> }; estimate: Partial<JevEstimate>;
   total: number; done: number; failed: number; pending: number; cached: number; recommend: number; reject: number; unsure: number;
   overrides: number; cost: number; cost_estimated: boolean; tokens_in: number; tokens_out: number;
 };

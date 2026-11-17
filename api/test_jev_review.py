@@ -188,7 +188,7 @@ class ModelTests(JevCase):
         self.assertEqual(deepseek['pricing'], {'prompt': 0.0000002, 'completion': 0.0000008})
         self.assertFalse(muse['listed'])
         self.assertEqual([m['id'] for m in data['models']], ['acme/plain-model', DEEPSEEK, 'typesafe/jev-router', 'typesafe/jev-1.13'])
-        self.assertEqual((data['default_model'], data['last_model'], data['error']), ('typesafe/jev-1.13', 'typesafe/jev-1.13', None))
+        self.assertEqual((data['default_model'], data['last_model'], data['error']), ('z-ai/glm-5.3-flash', 'z-ai/glm-5.3-flash', None))
         self.call(self.boss, '/ai/models')
         self.assertEqual(len(self.fake.calls), 2)  # one hour cache (text list + decisions list)
         self.call(self.boss, '/ai/models?refresh=true')

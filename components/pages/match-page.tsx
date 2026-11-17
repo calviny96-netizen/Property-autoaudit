@@ -15,7 +15,7 @@ import { JevMatchBadge } from '@/components/jev/jev-badge';
 import { SelectionTray } from '@/components/match/selection-tray';
 import { errorMessage, isAbort, query } from '@/lib/api';
 import {
-  MATCH_STATUSES, STATUS_LABELS, cleanName, countLabel, displaySender, formatPhone, isMessagePart, matchStatusOf, messageText, monthStart, number, prettyRange,
+  MATCH_STATUSES, STATUS_LABELS, cleanName, countLabel, displaySender, formatPhone, isMessagePart, lastUpdatedAt, matchStatusOf, messageText, monthStart, number, prettyRange,
   relativeDate, shiftDay, structuredSummary, todayWib,
 } from '@/lib/format';
 import { ROUTES, ROUTE_PARAMS, type Navigate } from '@/lib/router';
@@ -36,7 +36,7 @@ const NO_SENDER = 'Tanpa nama pengirim';
 /** Custom is new: a saved status choice from before it existed gets it once; after that the person's choice stands. */
 const CUSTOM_ADDED_KEY = 'xm.match.custom-added';
 
-const presets = () => periodPresets(['all', 'today', 'yesterday', 'today_yesterday', 'week', 'month', 'last_month', 'last_1_month', 'last_3_months']);
+const presets = () => periodPresets(['all', 'today', 'yesterday', 'today_yesterday', 'last_3_days', 'last_7_days', 'last_14_days', 'week', 'month', 'last_month', 'last_1_month', 'last_3_months']);
 
 type ListFilters = { temps: MatchFilter[]; stock: EntityStatus[]; buyerPeriod: Period; listingPeriod: Period; publicId: string; phones: string };
 type RowsResponse = { rows: Row[]; has_more: boolean };
@@ -80,8 +80,9 @@ export default function MatchPage({ params, navigate }: { params?: URLSearchPara
   const fromLink = !!(linkId || linkPhone);
   const [filters, setFilters] = useState<ListFilters>({
     temps: fromLink ? ALL_TEMPS : DEFAULT_TEMPS, stock: fromLink ? ['ready', 'on_hold', 'sold'] : ['ready'],
-    // Buyers default to today and yesterday (a link to one item shows everything of theirs).
-    buyerPeriod: fromLink ? ALL_PERIOD : periodFor('today_yesterday'), listingPeriod: ALL_PERIOD, publicId: linkId, phones: linkPhone,
+    // Company defaults apply on entry; links to an ID or sales number retain their full history.
+    buyerPeriod: fromLink ? ALL_PERIOD : periodFor(company?.matching_filter_defaults?.buyer_period ?? 'today_yesterday'),
+    listingPeriod: fromLink ? ALL_PERIOD : periodFor(company?.matching_filter_defaults?.listing_period ?? 'all'), publicId: linkId, phones: linkPhone,
   });
   const [prefsReady, setPrefsReady] = useState(false);
   // Arriving with a specific ID or phone number: show the plain list so the card is right there.
@@ -571,7 +572,7 @@ function SourceSummary({ source, kind, counts }: { source: Row; kind: Direction;
       {(summary || !isMessagePart(source)) && <p className="mt-0.5 text-sm leading-relaxed text-foreground/80">{summary || messageText(source).slice(0, 200)}</p>}
       <PartText row={source} className="mt-2 bg-surface/70" />
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-        <IdChip id={source.public_id} kind={kind} />
+        <div><IdChip id={source.public_id} kind={kind} /><p className="mt-1 text-[11px] text-muted">Last updated at : {lastUpdatedAt(source)}</p></div>
         <PurposeTags row={source} kind={kind} />
         <StrictNote row={source} />
         {PAIR_STATUSES.map((status) => (counts[status] > 0 ? <StatusBadge key={status} status={status} count={counts[status]} size="sm" explain={false} /> : null))}

@@ -133,7 +133,7 @@ export function RunView({ runId, onBack }: { runId: string; onBack: () => void }
               <Stat label="? Unsure" value={number(run.unsure)} tone="text-warning" />
               <Stat label="Failed" value={number(run.failed)} />
               <Stat label={active ? 'Waiting' : 'Not reviewed'} value={number(run.pending)} />
-              <Stat label={run.cost_estimated ? 'Cost (part estimated)' : 'Cost'} value={usd(run.cost, technical)} hint={`${number(run.tokens_in + run.tokens_out)} tokens`} />
+              {technical ? <Stat label={run.cost_estimated ? 'Cost (part estimated)' : 'Cost'} value={usd(run.cost, technical)} hint={`${number(run.tokens_in + run.tokens_out)} tokens`} /> : <Stat label="AI Review credits" value={String(payload.credits_charged ?? 0)} hint="1 credit per manual run" />}
             </div>
             <Collapsible title="What was reviewed" description={`${countLabel(run.total, 'pair')} · ${number(run.cached)} reused answers`}>
               <DetailList columns={2} items={[

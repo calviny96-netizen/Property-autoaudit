@@ -7,7 +7,7 @@ import { Building2, Check, ChevronDown, Globe, MapPin, MessageCircle, UserRoundC
 import { IdChip, ReasonList, StatusBadge, StatusChip } from '@/components/app/primitives';
 import { StatusMenu } from '@/components/app/status-menu';
 import {
-  OWNERSHIP_TIERS, cleanName, dateTime, displaySender, followUpMessage, formatPhone, initials, isMessagePart, matchStatusOf, messageText, number,
+  OWNERSHIP_TIERS, cleanName, dateTime, displaySender, followUpMessage, formatPhone, initials, isMessagePart, lastUpdatedAt, matchStatusOf, messageText, number,
   ownershipGroupLabel, ownershipHint, ownershipLabel, ownershipOrderHint, partLabel, plural, purposeLabel, relativeDate, structuredSummary, titleCase, waLink,
 } from '@/lib/format';
 import { useCompany } from '@/lib/session';
@@ -176,14 +176,16 @@ export function SourceCard({ row, direction, selected, onSelect, onStatus, bulk,
         {bulk && <PickBox label={`Select ${name}${row.public_id ? ` (${row.public_id})` : ''}`} checked={bulk.checked} onChange={bulk.onToggle} className="-mt-1.5 -ml-1.5" />}
         <Avatar color={hot ? 'danger' : 'accent'} variant="soft" size="md" className="hidden shrink-0 sm:flex"><Avatar.Fallback>{initials(name)}</Avatar.Fallback></Avatar>
         <div className="min-w-0 flex-1">
-          <button type="button" onClick={onSelect} aria-pressed={selected} aria-label={`Show matches for ${name}${row.public_id ? `, ID ${row.public_id}` : ''}`}
-            className="block w-full rounded-lg text-left outline-none after:absolute after:inset-0 after:rounded-2xl focus-visible:after:ring-2 focus-visible:after:ring-accent/40">
-            <span className="block min-w-0 pr-10 text-body leading-snug font-semibold break-words text-foreground">{name}</span>
-            <span className="mt-0.5 block text-caption text-muted"><LastSeen row={row} />{sender ? <> · {sender}</> : null}</span>
-          </button>
-          <div className="absolute top-2 right-2 z-10"><StatusMenu status={status} kind={kind} name={`${kind === 'buyer' ? 'Buyer' : 'Listing'} ${row.public_id ?? name}`} onChoose={onStatus} /></div>
+          <div className="flex items-start gap-3">
+            <button type="button" onClick={onSelect} aria-pressed={selected} aria-label={`Show matches for ${name}${row.public_id ? `, ID ${row.public_id}` : ''}`}
+              className="block min-w-0 flex-1 rounded-lg text-left outline-none after:absolute after:inset-0 after:rounded-2xl focus-visible:after:ring-2 focus-visible:after:ring-accent/40">
+              <span className="block text-body leading-snug font-semibold break-words text-foreground">{name}</span>
+              <span className="mt-0.5 block text-caption break-words text-muted"><LastSeen row={row} />{sender ? <> · {sender}</> : null}</span>
+            </button>
+            <div className="relative z-10 shrink-0"><StatusMenu status={status} kind={kind} name={`${kind === 'buyer' ? 'Buyer' : 'Listing'} ${row.public_id ?? name}`} onChoose={onStatus} /></div>
+          </div>
           <div className="relative z-10 mt-2.5 flex flex-wrap items-center gap-1.5">
-            <IdChip id={row.public_id} kind={kind} />
+            <div><IdChip id={row.public_id} kind={kind} /><p className="mt-1 text-[11px] text-muted">Last updated at : {lastUpdatedAt(row)}</p></div>
             <PurposeTags row={row} kind={kind} />
             {status !== 'ready' && <StatusChip status={status} />}
             <SourceCounts row={row} />
@@ -324,7 +326,7 @@ export function RecommendationCard({ target, source, direction, checked, onCheck
         </div>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-        <IdChip id={target.public_id} kind={targetKind} />
+        <div><IdChip id={target.public_id} kind={targetKind} /><p className="mt-1 text-[11px] text-muted">Last updated at : {lastUpdatedAt(target)}</p></div>
         <PurposeTags row={target} kind={targetKind} />
         {status !== 'ready' && <StatusChip status={status} />}
         <StrictNote row={target} />

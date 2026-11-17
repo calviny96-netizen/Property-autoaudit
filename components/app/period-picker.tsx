@@ -16,11 +16,11 @@ export type Preset = { id: string; label: string; range: () => { from: string; t
 /** Ready-made periods. Calendar periods ("Last month") differ from rolling ones ("Past month" = the last 30-ish days). */
 export type PresetId =
   | 'all' | 'today' | 'yesterday' | 'today_yesterday' | 'week' | 'last_week' | 'month' | 'last_month'
-  | 'last_7_days' | 'last_30_days' | 'last_1_month' | 'last_3_months';
+  | 'last_3_days' | 'last_7_days' | 'last_14_days' | 'last_30_days' | 'last_1_month' | 'last_3_months';
 
 export const PRESET_LABELS: Record<PresetId, string> = {
   all: 'All dates', today: 'Today', yesterday: 'Yesterday', today_yesterday: 'Today and yesterday', week: 'This week', last_week: 'Last week',
-  month: 'This month', last_month: 'Last month', last_7_days: 'Last 7 days', last_30_days: 'Last 30 days',
+  month: 'This month', last_month: 'Last month', last_3_days: 'Last 3 days', last_7_days: 'Last 7 days', last_14_days: 'Last 14 days', last_30_days: 'Last 30 days',
   last_1_month: 'Past month', last_3_months: 'Past 3 months',
 };
 
@@ -36,7 +36,9 @@ export function presetRange(id: PresetId, today = todayWib(), untilToday = false
     case 'last_week': return lastWeekRange(today);
     case 'month': return { from: monthStart(today), to: untilToday ? today : monthEnd(today) };
     case 'last_month': return lastMonthRange(today);
+    case 'last_3_days': return { from: shiftDay(today, -2), to: today };
     case 'last_7_days': return { from: shiftDay(today, -6), to: today };
+    case 'last_14_days': return { from: shiftDay(today, -13), to: today };
     case 'last_30_days': return { from: shiftDay(today, -29), to: today };
     case 'last_1_month': return { from: shiftMonth(today, -1), to: today };
     case 'last_3_months': return { from: shiftMonth(today, -3), to: today };

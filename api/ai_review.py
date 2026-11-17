@@ -50,6 +50,7 @@ APP_URL = os.getenv('XM_PUBLIC_URL', 'https://autoaudit.id')
 APP_TITLE = 'Property Auto Audit - Jev review'
 # Pinned on top of the model list. "~" ids are OpenRouter aliases and are sent unchanged.
 PRESETS = (
+    {'id': 'z-ai/glm-5.3-flash', 'name': 'GLM 5.3 Flash'},
     {'id': 'typesafe/jev-1.13', 'name': 'Jev 1.13'},
     {'id': 'typesafe/jev-1.14', 'name': 'Jev 1.14'},
     {'id': '~typesafe/jev-latest', 'name': 'Jev Latest'},
@@ -486,7 +487,8 @@ class ReviewScope(MatchingPeriods):
     directions: Literal['property', 'buyer', 'both'] = 'both'
     statuses: list[Literal['hot', 'warm', 'custom']] = Field(default_factory=lambda: list(STATUS_ORDER), min_length=1, max_length=3)
     group_keys: list[Annotated[str, Field(max_length=1000)]] | None = Field(default=None, max_length=500)
-    max_pairs: int = Field(default=150, ge=1, le=MAX_PAIRS)
+    max_pairs: int = Field(default=100, ge=1, le=MAX_PAIRS)
+    request_id: uuid.UUID | None = None
 
     @model_validator(mode='before')
     @classmethod
@@ -752,6 +754,15 @@ JSON_COLUMNS = {'engine_explanation', 'hints'}
 @router.post('/review-runs', status_code=202)
 def create_run(scope: ReviewScope, request: Request):
     with connect() as conn:
+        # Serialize manual starts per company: concurrent tabs share the same balance.
+        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(current_setting('xm.workspace_id'), 4053))")
+        if scope.request_id:
+            previous = conn.execute("SELECT id FROM xm.ai_review_runs WHERE company_id=current_setting('xm.workspace_id') AND request_id=%s", (scope.request_id,)).fetchone()
+            if previous:
+                return run_summary(conn, previous['id'])
+        charged = current_user(request)['role'] != 'admin'
+        if charged and review_credits(conn)['remaining'] <= 0:
+            raise HTTPException(409, 'Your company has no AI Review credits left. Contact your administrator.')
         if scope.key_id and current_user(request)['role'] != 'admin':
             raise HTTPException(403, 'Only the platform administrator can choose an API key.')
         scope = resolve_prompt(conn, scope, request)
@@ -762,19 +773,34 @@ def create_run(scope: ReviewScope, request: Request):
         run_id = uuid.uuid4()
         payload = {**scope.stored(), 'json_mode': info.get('json_mode') is not False, 'pricing': info.get('pricing'),
                    'model_label': model_label(scope.model), 'kind': estimate['model_kind'],
-                   'system_prompt': SYSTEM_PROMPT, 'decision_questions': DECISION_QUESTIONS}
-        conn.execute('''INSERT INTO xm.ai_review_runs(id,company_id,created_by,key_id,model,prompt_version,group_by,payload,estimate)
-          VALUES(%s,current_setting('xm.workspace_id'),%s,%s,%s,%s,%s,%s,%s)''',
+                   'system_prompt': SYSTEM_PROMPT, 'decision_questions': DECISION_QUESTIONS,
+                   'credits_charged': 1 if charged else 0}
+        conn.execute('''INSERT INTO xm.ai_review_runs(id,company_id,created_by,key_id,model,prompt_version,group_by,payload,estimate,request_id)
+          VALUES(%s,current_setting('xm.workspace_id'),%s,%s,%s,%s,%s,%s,%s,%s)''',
           (run_id, current_user(request)['id'], key_id, scope.model, estimate['prompt_version'], estimate['group_by'], json.dumps(payload),
-           json.dumps(estimate, default=str)))
+           json.dumps(estimate, default=str), scope.request_id))
         columns = ('run_id', 'company_id', *ITEM_COLUMNS)
         with conn.cursor() as cursor:
             cursor.executemany(
                 f"INSERT INTO xm.ai_reviews({','.join(columns)}) VALUES (%s,current_setting('xm.workspace_id'),{','.join(['%s'] * len(ITEM_COLUMNS))})",
                 [(run_id, *[json.dumps(item[c], default=str) if c in JSON_COLUMNS else item[c] for c in ITEM_COLUMNS]) for item in items])
         conn.execute("UPDATE xm.app_preferences SET ai_review_model=%s WHERE company_id=current_setting('xm.workspace_id')", (scope.model,))
+        if charged:
+            conn.execute("UPDATE xm.app_preferences SET ai_review_credits_used=ai_review_credits_used+1 WHERE company_id=current_setting('xm.workspace_id')")
         conn.commit()
         return run_summary(conn, run_id)
+
+
+def review_credits(conn):
+    row = conn.execute("SELECT ai_review_credits_used AS used FROM xm.app_preferences WHERE company_id=current_setting('xm.workspace_id')").fetchone()
+    used = int(row['used']) if row else 0
+    return {'total': 40, 'used': used, 'remaining': max(0, 40 - used), 'cost_per_run': 1, 'resets_at': None}
+
+
+@router.get('/credits')
+def credits(request: Request):
+    with connect() as conn:
+        return {**review_credits(conn), 'unlimited': current_user(request)['role'] == 'admin'}
 
 
 # ---------------------------------------------------------------- runs, results, overrides

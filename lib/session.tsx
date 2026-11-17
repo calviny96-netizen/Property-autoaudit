@@ -115,6 +115,7 @@ export function ManageProvider({ user, children }: { user: User; children: React
 
 type CompanyValue = {
   company: CompanySettings | undefined;
+  setCompany: (settings: CompanySettings) => void;
   stats: Stats | undefined;
   unseen: number;
   unseenHot: number;
@@ -161,7 +162,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     void api.post('/matches/recent/seen').then(() => { if (alive.current) setSummary({ unseen: 0, unseen_hot: 0 }); }).catch(() => {});
   }, [api]);
 
-  const value = useMemo(() => ({ company, stats, unseen: summary.unseen, unseenHot: summary.unseen_hot, refresh, refreshStats, markSeen }),
+  const value = useMemo(() => ({ company, setCompany, stats, unseen: summary.unseen, unseenHot: summary.unseen_hot, refresh, refreshStats, markSeen }),
     [company, stats, summary, refresh, refreshStats, markSeen]);
   return <CompanyContext.Provider value={value}>{children}</CompanyContext.Provider>;
 }

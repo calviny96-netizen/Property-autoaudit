@@ -72,7 +72,7 @@ function Overview({ onOpenRun, onOpenKeys }: { onOpenRun: (id: string) => void; 
                         {isActiveRun(run.status) ? `${number(run.done + run.failed)} of ${countLabel(run.total, 'pair')}` : countLabel(run.total, 'pair')}
                         {' · '}<span className="font-semibold text-success">✓ {number(run.recommend)}</span>
                         {' · '}<span className="font-semibold text-danger">✗ {number(run.reject)}</span>
-                        {' · '}? {number(run.unsure)} · {usd(run.cost, technical)}
+                        {' · '}? {number(run.unsure)} · {technical ? usd(run.cost, true) : `${run.payload.credits_charged ?? 0} credit`}
                       </span>
                     </span>
                     <ChevronRight className="mt-1 size-4 shrink-0 text-muted" aria-hidden="true" />

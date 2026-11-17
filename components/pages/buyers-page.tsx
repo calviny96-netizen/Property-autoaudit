@@ -104,15 +104,15 @@ function BuyerCard({ row, onStatus, onOpen }: { row: Row; onStatus: (status: Ent
   const matched = counts.some(([, n]) => n > 0);
   return (
     <article className="relative rounded-2xl border border-border bg-surface p-4 shadow-card">
-      <div className="absolute top-2 right-2"><StatusMenu status={status} kind="buyer" name={`Buyer ${row.public_id ?? name}`} onChoose={onStatus} /></div>
-      <div className="flex items-start gap-3 pr-10">
+      <div className="flex items-start gap-3">
         <Avatar color="accent" variant="soft" size="md" className="hidden shrink-0 sm:flex"><Avatar.Fallback>{initials(name)}</Avatar.Fallback></Avatar>
         <div className="min-w-0 flex-1">
           <p className="text-body leading-snug font-semibold break-words text-foreground">{name}</p>
-          <p className="mt-0.5 text-caption text-muted">
+          <p className="mt-0.5 text-caption break-words text-muted">
             {relativeDate(row.sent_at)}{sender && sender !== name ? ` · ${sender}` : ''}{row.contact_phone ? ` · ${formatPhone(row.contact_phone)}` : ''}
           </p>
         </div>
+        <StatusMenu status={status} kind="buyer" name={`Buyer ${row.public_id ?? name}`} onChoose={onStatus} />
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <IdChip id={row.public_id ?? undefined} kind="buyer" />

@@ -36,6 +36,21 @@ SECTION_STYLES = {
 BADGE_COLORS = {'property': ('#0b2a6f', '#ffffff'), 'buyer': ('#7dd3fc', '#0b1f44'), None: ('#1645a0', '#ffffff')}
 HIGHLIGHT = '#fff59d'  # the words in both messages that back a reason (see matching_rules.evidence_spans)
 FOOTER_COLOR = '#53617b'
+
+
+def last_updated_at(row):
+    """Latest source posting, in WIB. Naive chat timestamps already mean WIB."""
+    value = (row or {}).get('last_seen_at') or (row or {}).get('sent_at')
+    if not value:
+        return None
+    try:
+        stamp = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        if stamp.tzinfo:
+            stamp = stamp.astimezone(ZoneInfo('Asia/Jakarta'))
+        months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+        return f'{stamp.day} {months[stamp.month - 1]} {stamp.year} - {stamp:%H:%M} WIB'
+    except (TypeError, ValueError):
+        return None
 COUNT_CHIPS = [('hot', 'Hot'), ('warm', 'Warm'), ('custom', 'Custom'), ('unmatched', 'belum cocok')]
 
 
@@ -872,6 +887,7 @@ def build_report(pairs, direction, section=None, cover=None, first_pair=1, combi
             label_y = bottom - 10 - 32
             body_top = label_y - (LABEL_Y - BODY_TOP)
         ids = [source.get('public_id'), target.get('public_id') if target else None]
+        timestamps = [last_updated_at(source), last_updated_at(target)]
         texts = [message_text(source), message_text(target) if target else 'Belum ada kecocokan.']
         part_labels = [part_label(source), part_label(target) if target else None]
         marks = jev_evidence(source, target, direction) if jev else evidence(source, target, direction)
@@ -881,7 +897,11 @@ def build_report(pairs, direction, section=None, cover=None, first_pair=1, combi
             pdf.setFillColor(HexColor('#1645a0'))
             pdf.setFont('Helvetica-Bold', 11)
             title = labels[col] + (' | ' + ids[col] if ids[col] else '')
-            pdf.drawString(x + 12, label_y + 11, title)
+            pdf.drawString(x + 12, label_y + (18 if timestamps[col] else 11), title)
+            if timestamps[col]:
+                pdf.setFont('Helvetica', 7.5)
+                pdf.setFillColor(HexColor(FOOTER_COLOR))
+                pdf.drawString(x + 12, label_y + 6, 'Last updated at : ' + timestamps[col])
             paragraph, used_height = fit_paragraph(texts[col], height=body_top - BODY_BOTTOM, label=part_labels[col], highlights=marks[col])
             paragraph.drawOn(pdf, x + 12, body_top - used_height)
 

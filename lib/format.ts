@@ -381,6 +381,11 @@ export function dateTime(value?: string | null, withZone = true) {
   return withZone ? `${text} WIB` : text;
 }
 
+/** Latest recorded posting of this buyer/listing, never the PDF generation time. */
+export function lastUpdatedAt(row: Pick<Row, 'last_seen_at' | 'sent_at'>) {
+  return dateTime(row.last_seen_at || row.sent_at).replace(', ', ' - ');
+}
+
 /** "Today 14:05 WIB", "Yesterday 09:12 WIB", otherwise "12 Oct 2026, 14:05 WIB". */
 export function relativeDateTime(value?: string | null) {
   const date = asWib(value);
