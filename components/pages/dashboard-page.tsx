@@ -21,7 +21,7 @@ const labelFor = (iso: string, bucket: 'day' | 'week') => (bucket === 'week' ? `
 
 /** "Albert · 4390" when the message names the sales, otherwise the formatted phone; a sender's clean WhatsApp name. */
 function salesChartLabel(groupBy: Dashboard['top_sales']['group_by'], row: Dashboard['top_sales']['rows'][number]) {
-  if (groupBy !== 'phone') return displaySender(row.label).slice(0, 28);
+  if (groupBy === 'sender') return displaySender(row.label).slice(0, 28);
   const digits = (row.key ?? '').replace(/\D/g, '');
   const name = cleanName(row.contact_name);
   if (!digits) return name || 'No phone number';
@@ -251,7 +251,11 @@ export default function DashboardPage({ navigate, params }: { navigate?: Navigat
             )}
           </Panel>
 
-          <Panel title="Listings per sales" description={data.top_sales.group_by === 'phone' ? 'Ready listings, grouped by the phone number in the message.' : 'Ready listings, grouped by who posted them.'}>
+          <Panel title="Listings per sales" description={{
+            sender: 'Ready listings grouped by who posted them.',
+            phone: 'Ready listings grouped by the phone number in the message.',
+            sales: 'Ready listings grouped by the Sales Watchlist number in the message.',
+          }[data.top_sales.group_by]}>
             {data.top_sales.rows.length ? (
               <BarsChart horizontal height={Math.max(260, data.top_sales.rows.length * 44)} ariaLabel="Bar chart of ready listings per sales"
                 labels={data.top_sales.rows.map((row) => salesChartLabel(data.top_sales.group_by, row))}

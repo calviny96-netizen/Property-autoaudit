@@ -7,11 +7,10 @@ import { AdvancedSection, ErrorNotice, Panel, SkeletonCard, StatusBadge } from '
 import { useSaveNotice } from '@/components/settings/reprocess-banner';
 import { ServiceAreasPanel } from '@/components/settings/service-areas';
 import { KeywordsPanel, MatchingModePanel } from '@/components/settings/source-rules';
-import { MatchingDefaultsPanel } from '@/components/settings/matching-defaults';
 import { errorMessage } from '@/lib/api';
 import { MATCH_STATUS_HINTS, area, dateOnly, decimal, money, moneyRange, toleranceBand } from '@/lib/format';
 import type { Navigate } from '@/lib/router';
-import { useCompany, useSession } from '@/lib/session';
+import { useCompany } from '@/lib/session';
 import type { MatchSettings, MatchStatus, ReprocessStatus } from '@/lib/types';
 import { useData } from '@/lib/use-data';
 import { useApi } from '@/lib/workspace-context';
@@ -148,14 +147,12 @@ type LoadedSettings = { data?: MatchSettings; error: string; reload: () => void;
 /** Settings → Matching: whose buyers and listings count, what the statuses mean, and (admins) the advanced scoring. */
 export function MatchingTab({ navigate }: { navigate?: Navigate }) {
   const { company } = useCompany();
-  const { user } = useSession();
   const admin = !!company?.permissions.manage_settings;
   const api = useApi();
   // Everyone may read the settings: the legend quotes the company's own Hot and Warm ranges.
   const loaded = useData((signal) => api.get<Record<string, unknown>>('/settings', signal).then(pickSettings), []);
   return (
     <div className="space-y-6">
-      {user.role === 'admin' && <MatchingDefaultsPanel />}
       <ServiceAreasPanel />
       <MatchingModePanel navigate={navigate} />
       <KeywordsPanel />

@@ -107,7 +107,8 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
   }
 
   const data = estimate.data;
-  const byPhone = (plan.data?.group_by ?? data?.group_by) === 'phone';
+  const grouping = plan.data?.group_by ?? data?.group_by ?? 'sender';
+  const byPhone = grouping !== 'sender';
   const unit: [string, string] = byPhone ? ['sales contact', 'sales contacts'] : ['sender', 'senders'];
   const canStart = (technical || !!credits.data?.remaining) && !plan.loading && !plan.error && (!technical || !!keyId) && limitOk && !!data && data.pairs > 0 && !stale && !estimate.loading && !(groupKeys && groupKeys.length === 0);
 

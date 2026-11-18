@@ -437,13 +437,15 @@ def workspace(direction: Literal['buyer','property']='buyer', search: str='', ph
     (clause, date_params), (target_clause, target_params) = matching_windows(direction, date_from, date_to, time_from, time_to,
         buyer_date_from, buyer_date_to, listing_date_from, listing_date_to)
     chosen = stock_statuses(stock_status)
-    if group_by and (direction != 'property' or group_by not in ('sender','phone')):
-        raise HTTPException(400, 'Grouping is only available for property listings: sender or phone.')
+    if group_by and (direction != 'property' or group_by not in workspace_cache.GROUP_KEYS):
+        raise HTTPException(400, 'Grouping is only available for property listings.')
     with connect() as conn:
         search = resolve_search(conn, request, search)
         if workspace_cache.ready(conn):
             return workspace_cache.sources(conn,direction,search,phones,statuses,clause,date_params,offset,chosen,public_id,group_by or None,group_key,
                                            target_clause, target_params)
+        if group_by == 'sales':
+            return {'rows': [], 'has_more': False}
         scope_sql, scope_params = document_scope_filter(conn)
     kind, relation = ('buyer_request','buyer_request_id') if direction=='buyer' else ('property_listing','property_listing_id')
     other = 'property_listing_id' if direction == 'buyer' else 'buyer_request_id'
@@ -529,14 +531,14 @@ def workspace(direction: Literal['buyer','property']='buyer', search: str='', ph
 @router.get('/workspace/groups')
 def workspace_groups(group_by: str='', search: str='', phones: str='', statuses: str='hot,warm,custom,unmatched', date_from: str='', date_to: str='', time_from: str='00:00', time_to: str='23:59', stock_status: str='ready', public_id: str='', group_search: str='', offset: int=0, request: Request = None,
                      buyer_date_from: str='', buyer_date_to: str='', listing_date_from: str='', listing_date_to: str=''):
-    """Listings grouped by message sender or by the phone number written in the bubble."""
+    """Listings grouped by sender or a sales contact written in the message."""
     import workspace_cache
     (clause, date_params), (target_clause, target_params) = matching_windows('property', date_from, date_to, time_from, time_to,
         buyer_date_from, buyer_date_to, listing_date_from, listing_date_to)
     chosen = stock_statuses(stock_status)
     with connect() as conn:
         mode = group_by or company_row(conn)['listing_group_by']
-        if mode not in ('sender','phone'):
+        if mode not in workspace_cache.GROUP_KEYS:
             raise HTTPException(400, 'Unknown grouping.')
         search = resolve_search(conn, request, search)
         if not workspace_cache.ready(conn):

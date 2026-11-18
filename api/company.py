@@ -1,5 +1,6 @@
 """Company-level settings and, for the platform administrator, company management."""
 import uuid
+from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -11,6 +12,7 @@ import activity
 from access import permissions
 from auth import PASSWORD_MIN, _password_hash, current_user, temporary_password
 from db import connect
+from periods import shift_month
 from stock import tracked_phones
 from tenant import owner_id, provision_company, workspace_id
 from runtime_cache import invalidate_stats
@@ -65,10 +67,24 @@ class MatchingFilterDefaults(BaseModel):
     listing_period: FilterPeriod
     buyer_period: FilterPeriod
 
+    def windows(self, today):
+        starts = {
+            'all': None, 'today': today, 'today_yesterday': today - timedelta(days=1),
+            'last_3_days': today - timedelta(days=2), 'last_7_days': today - timedelta(days=6),
+            'last_14_days': today - timedelta(days=13),
+            'last_1_month': shift_month(today, -1), 'last_3_months': shift_month(today, -3),
+        }
+        windows = {}
+        for kind, period in (('buyer', self.buyer_period), ('listing', self.listing_period)):
+            start = starts[period]
+            windows[f'{kind}_date_from'] = start.isoformat() if start else ''
+            windows[f'{kind}_date_to'] = today.isoformat() if start else ''
+        return windows
+
 
 class CompanyUpdate(BaseModel):
     company_name: str | None = Field(default=None, min_length=1, max_length=120)
-    listing_group_by: Literal['sender', 'phone'] | None = None
+    listing_group_by: Literal['sender', 'phone', 'sales'] | None = None
     search_locked: bool | None = None
     matching_mode: Literal['company', 'sales'] | None = None
     matching_filter_defaults: MatchingFilterDefaults | None = None

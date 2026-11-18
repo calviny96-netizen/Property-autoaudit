@@ -12,7 +12,7 @@ export type MatchStatus = Temperature | 'unmatched';
 export type MatchFilter = MatchStatus;
 export type TransactionType = 'sale' | 'rent' | 'both' | 'unknown';
 export type PriceBasis = 'total' | 'per_year' | 'per_month' | 'per_m2';
-export type GroupBy = 'sender' | 'phone';
+export type GroupBy = 'sender' | 'phone' | 'sales';
 export type MatchingMode = 'company' | 'sales';
 /**
  * Who a recommended buyer or listing belongs to, seen from the selected source. Computed by the API when the list is

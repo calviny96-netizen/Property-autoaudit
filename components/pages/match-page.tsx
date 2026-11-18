@@ -397,7 +397,7 @@ function MatchWorkspace({ direction, base, useGroups, groupBy, enabled, temps, g
             <div className="flex flex-wrap items-center gap-2">
               {direction === 'property' && (
                 <Switch isSelected={grouped} onChange={onGrouped}>
-                  <Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control><span className="text-sm font-semibold">Group by {groupBy === 'phone' ? 'sales contact' : 'sender'}</span></Switch.Content>
+                  <Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control><span className="text-sm font-semibold">Group by {groupBy === 'sender' ? 'sender' : 'sales contact'}</span></Switch.Content>
                 </Switch>
               )}
               <Button size="sm" variant={bulkMode ? 'primary' : 'secondary'} onPress={() => { setBulkMode((value) => !value); setBulk({}); }}>
@@ -409,8 +409,8 @@ function MatchWorkspace({ direction, base, useGroups, groupBy, enabled, temps, g
 
           {useGroups ? (
             <>
-              <SearchField value={groupSearch} onChange={setGroupSearch} aria-label={groupBy === 'phone' ? 'Search sales contacts' : 'Search senders'}>
-                <SearchField.Group><SearchField.SearchIcon /><SearchField.Input placeholder={groupBy === 'phone' ? 'Search by sales name or phone' : 'Search by sender name'} /><SearchField.ClearButton /></SearchField.Group>
+              <SearchField value={groupSearch} onChange={setGroupSearch} aria-label={groupBy === 'sender' ? 'Search senders' : 'Search sales contacts'}>
+                <SearchField.Group><SearchField.SearchIcon /><SearchField.Input placeholder={groupBy === 'sender' ? 'Search by sender name' : 'Search by sales name or phone'} /><SearchField.ClearButton /></SearchField.Group>
               </SearchField>
               <ErrorNotice message={groups.error} onRetry={groups.reload} />
               {groups.loading && !groups.data && <SkeletonList rows={4} />}
@@ -444,7 +444,7 @@ function MatchWorkspace({ direction, base, useGroups, groupBy, enabled, temps, g
                   </Accordion>
                 </div>
               )}
-              {groups.data?.has_more && <p className="text-caption text-muted">Showing the largest groups first. Search to find a specific {groupBy === 'phone' ? 'sales contact' : 'sender'}.</p>}
+              {groups.data?.has_more && <p className="text-caption text-muted">Showing the largest groups first. Search to find a specific {groupBy === 'sender' ? 'sender' : 'sales contact'}.</p>}
             </>
           ) : (
             <>
@@ -583,7 +583,7 @@ function SourceSummary({ source, kind, counts }: { source: Row; kind: Direction;
 
 function groupTitle(item: RowGroupSummary, by: GroupBy) {
   if (item.title) return item.title;
-  if (by === 'phone') return item.key ? `${cleanName(item.contact_name) ? `${cleanName(item.contact_name)} · ` : ''}${formatPhone(item.key)}` : 'No phone number';
+  if (by !== 'sender') return item.key ? `${cleanName(item.contact_name) ? `${cleanName(item.contact_name)} · ` : ''}${formatPhone(item.key)}` : 'No phone number';
   return item.key === NO_SENDER ? 'Unknown sender' : displaySender(item.key) || 'Unknown sender';
 }
 
@@ -612,7 +612,7 @@ function GroupBySwitch({ value }: { value: GroupBy }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-2xl border border-border bg-surface px-3 py-2.5">
       <span className="text-sm font-semibold text-foreground">Group listings by</span>
-      <Segmented label="Group listings by" value={value} options={[{ id: 'sender', label: 'Sender' }, { id: 'phone', label: 'Sales contact' }]}
+      <Segmented<GroupBy> label="Group listings by" value={value} options={[{ id: 'sender', label: 'Sender' }, { id: 'sales', label: 'Sales Watchlist' }]}
         onChange={(next) => { void api.put('/company/settings', { listing_group_by: next }).then(() => { refresh(); toast.success('Grouping changed for the whole company'); }).catch((reason) => toast.danger(errorMessage(reason))); }} />
     </div>
   );

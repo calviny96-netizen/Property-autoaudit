@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { Button, Input, Label, TextField, toast } from '@heroui/react';
 import { Building2, Save, Users } from 'lucide-react';
 import { Panel, Segmented } from '@/components/app/primitives';
+import { MatchingDefaultsPanel } from '@/components/settings/matching-defaults';
 import { errorMessage } from '@/lib/api';
-import { useCompany } from '@/lib/session';
+import { useCompany, useSession } from '@/lib/session';
 import type { GroupBy } from '@/lib/types';
 import { useApi } from '@/lib/workspace-context';
 
@@ -13,6 +14,7 @@ import { useApi } from '@/lib/workspace-context';
 export function GeneralTab() {
   const api = useApi();
   const { company, refresh } = useCompany();
+  const { user } = useSession();
   const admin = !!company?.permissions.manage_settings;
   const [edited, setEdited] = useState<string | null>(null);
   const name = edited ?? company?.company_name ?? '';
@@ -46,14 +48,16 @@ export function GeneralTab() {
         <div className="space-y-4">
           <Segmented<GroupBy> label="Group listings by" value={company?.listing_group_by ?? 'sender'} fullWidth isDisabled={!admin || busy === 'group'}
             onChange={(next) => { if (admin && next !== company?.listing_group_by) void run('group', () => api.put('/company/settings', { listing_group_by: next }), 'Grouping saved for the whole company'); }}
-            options={[{ id: 'sender', label: 'Sender' }, { id: 'phone', label: 'Phone number in the message' }]} />
+            options={[{ id: 'sender', label: 'Sender' }, { id: 'sales', label: 'Sales Watchlist' }]} />
           <dl className="space-y-2 text-sm leading-relaxed">
-            <div><dt className="inline font-semibold text-foreground">Sender: </dt><dd className="inline text-muted">the WhatsApp contact who posted the message in the group. This is the default.</dd></div>
-            <div><dt className="inline font-semibold text-foreground">Phone number in the message: </dt><dd className="inline text-muted">the sales contact in the signature of each listing. Useful when one person posts listings for many sales.</dd></div>
+            <div><dt className="font-semibold text-foreground">Sender</dt><dd className="text-muted">Groups listings by who posted the message in WhatsApp.</dd></div>
+            <div><dt className="font-semibold text-foreground">Sales Watchlist</dt><dd className="text-muted">Groups listings by a number in the message that matches this company’s Sales Watchlist.</dd></div>
           </dl>
+          {company?.listing_group_by === 'sales' && !company.tracked_phones.length && <p className="text-sm text-muted">Add sales numbers in the Sales Watchlist tab to see listing groups here.</p>}
           {!admin && <p className="text-caption text-muted">Only company admins can change this.</p>}
         </div>
       </Panel>
+      {user.role === 'admin' && company && <MatchingDefaultsPanel />}
     </div>
   );
 }

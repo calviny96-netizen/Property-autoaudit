@@ -21,14 +21,14 @@ const OPTIONS: { id: MatchingFilterPeriod; label: string }[] = [
   { id: 'last_3_months', label: 'Past 3 months' },
   { id: 'all', label: 'All dates' },
 ];
-const FIELDS = [{ key: 'listing_period', label: 'Listing posted' }, { key: 'buyer_period', label: 'Buyer posted' }] as const;
+const FIELDS = [{ key: 'buyer_period', label: 'Buyer posting period' }, { key: 'listing_period', label: 'Listing posting period' }] as const;
 
 /** Platform admins set shared entry defaults; changing a page's filters never writes these values. */
 export function MatchingDefaultsPanel() {
   const api = useApi();
   const { company, setCompany } = useCompany();
   const [saved, setSaved] = useState(company?.matching_filter_defaults);
-  const [draft, setDraft] = useState<MatchingFilterDefaults>(() => saved ?? { listing_period: 'last_1_month', buyer_period: 'today' });
+  const [draft, setDraft] = useState<MatchingFilterDefaults>(() => saved ?? { buyer_period: 'today', listing_period: 'last_3_months' });
   const [busy, setBusy] = useState(false);
   const dirty = !saved || FIELDS.some(({ key }) => draft[key] !== saved[key]);
 
@@ -47,7 +47,7 @@ export function MatchingDefaultsPanel() {
   }
 
   return (
-    <Panel title="Default matching periods" description={`The starting filters for everyone in ${company?.company_name || 'this company'}, in both Matching and AI Review. Only the super admin can change these defaults.`}>
+    <Panel title="Default Buyer × Listing periods" description={`Saved posting periods for AI Review and Matching in ${company?.company_name || 'this company'}.`}>
       <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <div className="grid gap-4 sm:grid-cols-2">
           {FIELDS.map(({ key, label }) => {
@@ -69,11 +69,10 @@ export function MatchingDefaultsPanel() {
             );
           })}
         </div>
-        <p className="text-sm text-muted">Periods move with today’s date in WIB. “Last 3 days” includes today and the previous 2 days. “Past month” starts one calendar month before today.</p>
-        <p className="text-sm text-muted">AI Review opens in Match mode to use these posting dates. Users can adjust their filters or switch to Recent Match for discovery dates. Links to a specific buyer, listing or sales contact still show their full history.</p>
+        <p className="text-sm text-muted">Dates roll forward daily in WIB. AI Review opens in Match mode with these periods. Users can adjust them for each review or use Recent Match to filter by discovery date.</p>
         <div className="flex flex-wrap items-center gap-3">
           <Button type="submit" isPending={busy} isDisabled={!dirty || busy}><Save className="size-4" aria-hidden="true" />Save defaults</Button>
-          {!saved && <span className="text-caption text-muted">Not configured yet. Save to apply these periods to both menus.</span>}
+          {!saved && <span className="text-caption text-muted">Save to apply these periods to new reviews and the Matching page.</span>}
         </div>
       </form>
     </Panel>

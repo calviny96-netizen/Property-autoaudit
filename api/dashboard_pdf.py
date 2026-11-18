@@ -234,21 +234,24 @@ def make_insights_id(data):
 # ---------------------------------------------------------------- data
 def ready_listings_by_sales(conn, group_by):
     """Every ready listing with its sales key (same grouping as the Home chart) and newest posting date."""
-    from workspace_cache import GROUP_KEYS
-    key_sql = GROUP_KEYS['sender' if group_by == 'sender' else 'phone']
+    from workspace_cache import grouped_listing_documents, grouping
+    key_sql, name_sql, group_join = grouping(group_by)
+    phone_sql = key_sql if group_by == 'sales' else 'd.contact_phone'
     scope_sql, scope_params = document_scope_filter(conn)
     rows = conn.execute(
-        f'''SELECT {key_sql} AS k, g.group_id, coalesce(g.public_id, e.public_id) AS public_id, d.contact_name, d.contact_phone,
+        f'''SELECT DISTINCT ON ({key_sql}, g.group_id) {key_sql} AS k, g.group_id,
+                   coalesce(g.public_id, e.public_id) AS public_id, {name_sql} AS contact_name, {phone_sql} AS contact_phone,
                    d.primary_category, d.categories, d.locations, d.land_area_min, d.land_area_max, d.building_area_min,
                    d.building_area_max, d.price_min, d.price_max, d.price_basis, d.rent_price_min, d.rent_price_max,
                    d.rent_price_basis, d.transaction_type, d.normalized_text, r.raw_text, r.sent_at,
                    (SELECT max(r2.sent_at) FROM xm.document_group_members gm
                       JOIN xm.documents d2 ON d2.id = gm.document_id JOIN xm.raw_messages r2 ON r2.id = d2.raw_message_id
                      WHERE gm.group_id = g.group_id AND d2.active) AS newest
-            FROM xm.document_groups g JOIN xm.documents d ON d.id = g.group_id JOIN xm.raw_messages r ON r.id = d.raw_message_id
+            FROM xm.document_groups g {grouped_listing_documents(group_by)}
+            JOIN xm.raw_messages r ON r.id=d.raw_message_id{group_join}
             LEFT JOIN xm.entities e ON e.entity_id = d.entity_id
             WHERE g.company_id = current_setting('xm.workspace_id') AND g.document_type = 'property_listing' AND g.status = 'ready'
-              AND d.active''' + scope_sql, scope_params).fetchall()
+              AND d.active''' + scope_sql + f' ORDER BY {key_sql},g.group_id,r.sent_at DESC NULLS LAST,d.id', scope_params).fetchall()
     groups = defaultdict(list)
     for row in rows:
         row = dict(row)
@@ -259,10 +262,10 @@ def ready_listings_by_sales(conn, group_by):
     for key, items in groups.items():
         items.sort(key=lambda r: (r['newest'] or date.min, r['public_id'] or ''), reverse=True)
         phones = Counter(r['contact_phone'] for r in items if r['contact_phone'])
-        phone = key if group_by == 'phone' else (phones.most_common(1)[0][0] if phones else '')
+        phone = key if group_by != 'sender' else (phones.most_common(1)[0][0] if phones else '')
         names = Counter(r['contact_name'] for r in items if r['contact_name'])
         label = sales_label(group_by, key)
-        if group_by == 'phone' and names:
+        if group_by != 'sender' and names:
             label = f"{names.most_common(1)[0][0]} ({phone_text(phone)})" if phone else names.most_common(1)[0][0]
         elif phone:
             label = f'{label} ({phone_text(phone)})'
@@ -796,7 +799,8 @@ def build_dashboard_pdf(data, sales, company_name, generated=None, today=None, t
 
     top_sales = data['top_sales']['rows']
     doc.chart_title('Listing siap per sales', 'Listing siap, dikelompokkan menurut '
-                    + ('nomor telepon pada pesan.' if data['top_sales']['group_by'] == 'phone' else 'pengirim pesan.'),
+                    + {'sales': 'nomor pada pesan yang terdaftar di Sales Watchlist.',
+                       'phone': 'nomor telepon pada pesan.', 'sender': 'pengirim pesan.'}[data['top_sales']['group_by']],
                     20 * max(len(top_sales), 1) + 40)
     if top_sales:
         names = {s['key']: s['label'] for s in sales}

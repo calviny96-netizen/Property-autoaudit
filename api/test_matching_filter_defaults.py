@@ -1,11 +1,13 @@
 """Shared page defaults: validated presets, platform-only writes and company isolation."""
 import unittest
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
 from pydantic import ValidationError
 
 from company import CompanyUpdate, MatchingFilterDefaults, put_company_settings
+from ai_review import ReviewScope, apply_company_periods
 from harness import ServerTestCase
 
 
@@ -13,6 +15,22 @@ DEFAULTS = {'listing_period': 'last_14_days', 'buyer_period': 'last_3_days'}
 
 
 class FilterDefaultsPolicyTests(unittest.TestCase):
+    def test_ai_review_applies_rolling_defaults_and_respects_explicit_windows(self):
+        defaults = {'buyer_period': 'last_7_days', 'listing_period': 'last_3_months'}
+        with patch('ai_review.datetime', wraps=datetime) as clock:
+            # 31 May in WIB, still 30 May in UTC.
+            clock.now.side_effect = lambda tz: datetime.fromisoformat('2026-05-30T18:00:00+00:00').astimezone(tz)
+            resolved = apply_company_periods(ReviewScope(), defaults)
+            self.assertEqual(resolved.source, 'match')
+            self.assertEqual((resolved.buyer_date_from, resolved.buyer_date_to), ('2026-05-25', '2026-05-31'))
+            self.assertEqual((resolved.listing_date_from, resolved.listing_date_to), ('2026-02-28', '2026-05-31'))
+            manual = ReviewScope(source='match', buyer_date_from='', buyer_date_to='')
+            self.assertEqual(apply_company_periods(manual, defaults).buyer_date_from, '')
+            self.assertEqual(apply_company_periods(manual, defaults).listing_date_from, '2026-02-28')
+            for manual in (ReviewScope(source='recent'), ReviewScope(found_from='2026-05-20'),
+                           ReviewScope(date_from='2026-05-20')):
+                self.assertIs(apply_company_periods(manual, defaults), manual)
+
     def test_presets_are_validated_and_both_periods_are_required(self):
         for period in ('all', 'today', 'today_yesterday', 'last_3_days', 'last_7_days', 'last_14_days', 'last_1_month', 'last_3_months'):
             self.assertEqual(MatchingFilterDefaults(listing_period=period, buyer_period=period).buyer_period, period)

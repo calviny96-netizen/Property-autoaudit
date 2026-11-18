@@ -376,7 +376,7 @@ def recipient_for(group, payload):
     mapped = payload['recipients'].get(group['key'])
     if mapped:
         return mapped, 'ready', 'mapping'
-    if payload['group_by'] == 'phone':
+    if payload['group_by'] in ('phone', 'sales'):
         phone = valid_phone(group['key'])
         return phone, 'ready' if phone else 'needs_review', 'group_phone' if phone else 'missing_phone'
     # A representative listing phone is NOT proof of the sender's WhatsApp identity.

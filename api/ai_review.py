@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 import workspace_cache
 from ai_keys import SecretUnavailable, key_secret, resolve_key_id
 from auth import current_user
-from company import company_row
+from company import MatchingFilterDefaults, company_row
 from db import connect
 from parser import clean_text, split_contact
 from periods import MatchingPeriods, WIB, shift_month
@@ -490,24 +490,31 @@ class ReviewScope(MatchingPeriods):
     max_pairs: int = Field(default=100, ge=1, le=MAX_PAIRS)
     request_id: uuid.UUID | None = None
 
-    @model_validator(mode='before')
+    @field_validator('found_from', 'found_to', mode='before')
     @classmethod
-    def default_windows(cls, values):
-        if not isinstance(values, dict):
-            return values
-        values = dict(values)
+    def empty_discovery_date(cls, value):
+        return '' if value is None else value
+
+    @model_validator(mode='after')
+    def default_windows(self):
+        explicit = self.model_fields_set
+        # Keep the fields set by the caller distinguishable from fallback dates.
         today = datetime.now(WIB).date()
         # Existing API callers with explicit posting windows retain their manual scope.
-        values.setdefault('source', 'match' if any(key in values for key in MatchingPeriods.model_fields) else 'recent')
-        if values.get('source', 'recent') == 'recent':
-            values['found_from'] = values.get('found_from') or today.isoformat()
-            values['found_to'] = values.get('found_to') or values['found_from']
+        if 'source' not in explicit and explicit & MatchingPeriods.model_fields.keys():
+            object.__setattr__(self, 'source', 'match')
+        if self.source == 'recent':
+            object.__setattr__(self, 'found_from', self.found_from or today.isoformat())
+            object.__setattr__(self, 'found_to', self.found_to or self.found_from)
         # Explicit empty strings mean all dates. Preserve custom and legacy windows.
+        if explicit & {'date_from', 'date_to'}:
+            return self
         for kind, start in (('buyer', today - timedelta(days=1)), ('listing', shift_month(today, -3))):
-            if not any(key in values for key in (kind + '_date_from', kind + '_date_to', 'date_from', 'date_to')):
-                values[kind + '_date_from'] = start.isoformat()
-                values[kind + '_date_to'] = today.isoformat()
-        return values
+            begin, end = f'{kind}_date_from', f'{kind}_date_to'
+            if not explicit & {begin, end}:
+                object.__setattr__(self, begin, start.isoformat())
+                object.__setattr__(self, end, today.isoformat())
+        return self
 
     @field_validator('model')
     @classmethod
@@ -525,6 +532,21 @@ class ReviewScope(MatchingPeriods):
 
     def stored(self):
         return self.model_dump(mode='json', exclude={'model', 'key_id'})
+
+
+def apply_company_periods(scope, defaults):
+    explicit = scope.model_fields_set
+    if not defaults or explicit & {'date_from', 'date_to'}:
+        return scope
+    if scope.source == 'recent' and explicit & {'source', 'found_from', 'found_to'}:
+        return scope
+    windows = MatchingFilterDefaults.model_validate(defaults).windows(datetime.now(WIB).date())
+    updates = {'source': 'match', 'found_from': '', 'found_to': ''}
+    for kind in ('buyer', 'listing'):
+        begin, end = f'{kind}_date_from', f'{kind}_date_to'
+        if not explicit & {begin, end}:
+            updates.update({begin: windows[begin], end: windows[end]})
+    return scope.model_copy(update=updates)
 
 
 class SavedPrompt(BaseModel):
@@ -627,10 +649,10 @@ def collect_candidates(conn, scope):
         filters = Filters(direction=direction, statuses=','.join(chosen), stock_status='ready', group_by=group_by,
                           recent=scope.source == 'recent', found_from=scope.found_from, found_to=scope.found_to, **periods)
         _, eligible, params = export_scope(conn, None, filters)
-        sources = conn.execute('WITH ' + eligible + ' SELECT id,group_key FROM eligible ORDER BY sent_at DESC NULLS LAST,id', params).fetchall()
-        keys = {row['id']: row['group_key'] for row in sources if wanted is None or row['group_key'] in wanted}
+        sources = conn.execute('WITH ' + eligible + ' SELECT id,group_key,contact_name FROM eligible ORDER BY sent_at DESC NULLS LAST,id', params).fetchall()
+        groups_by_id = {row['id']: row for row in sources if wanted is None or row['group_key'] in wanted}
         _, (target_clause, target_params) = filters.windows(direction)
-        ids = list(keys)
+        ids = list(groups_by_id)
         for start in range(0, len(ids), 100):
             if scope.source == 'recent':
                 historical = recent_pairs(conn, eligible, params, ids[start:start + 100])
@@ -641,7 +663,7 @@ def collect_candidates(conn, scope):
                     pair = (source['entity_id'], target['entity_id']) if direction == 'buyer' else (target['entity_id'], source['entity_id'])
                     target['explanation'] = reasons.get(tuple(map(str, pair)), [])
                     found.append({'direction': direction, 'source': source, 'target': target, 'status': target['status'],
-                                  'rank': rank, 'group_key': keys[source['id']]})
+                                  'rank': rank, 'group': groups_by_id[source['id']]})
                 if len(found) >= SCAN_LIMIT:
                     truncated = True
                     break
@@ -654,7 +676,7 @@ def collect_candidates(conn, scope):
                     status = pair_status(target)
                     if status in chosen:
                         found.append({'direction': direction, 'source': source, 'target': target, 'status': status, 'rank': rank,
-                                      'group_key': keys.get(source['id'], '')})
+                                      'group': groups_by_id[source['id']]})
             if len(found) >= SCAN_LIMIT:
                 truncated = True
                 break
@@ -679,12 +701,13 @@ def review_item(candidate, group_by, position, model):
     buyer_text, listing_text = prompt_text(buyer), prompt_text(listing)
     hints = {'status': candidate['status'], 'score': float(target.get('score') or 0), 'explanation': list(target.get('explanation') or []),
              'buyer': parsed_hints(buyer), 'listing': parsed_hints(listing)}
-    key = candidate['group_key']
+    group = candidate['group']
+    key = group['group_key']
     return {'position': position, 'direction': direction, 'source_document_id': source['id'], 'target_document_id': target['id'],
             'source_entity_id': source.get('entity_id'), 'target_entity_id': target.get('entity_id'),
             'buyer_entity_id': buyer.get('entity_id'), 'listing_entity_id': listing.get('entity_id'),
             'source_public_id': source.get('public_id'), 'target_public_id': target.get('public_id'),
-            'group_key': key, 'group_title': workspace_cache.group_title(group_by, key, source.get('contact_name')),
+            'group_key': key, 'group_title': workspace_cache.group_title(group_by, key, group['contact_name']),
             'engine_status': candidate['status'], 'engine_score': float(target.get('score') or 0),
             'engine_explanation': list(target.get('explanation') or []), 'buyer_text': buyer_text, 'listing_text': listing_text,
             'hints': hints, 'model': model, 'prompt_version': PROMPT_VERSION, 'input_hash': input_hash(buyer_text, listing_text)}
@@ -739,6 +762,7 @@ def plan_run(conn, scope):
 @router.post('/review-runs/estimate')
 def estimate_run(scope: ReviewScope, request: Request):
     with connect() as conn:
+        scope = apply_company_periods(scope, company_row(conn).get('matching_filter_defaults'))
         scope = resolve_prompt(conn, scope, request)
         _, estimate, _ = plan_run(conn, scope)
     return estimate
@@ -765,6 +789,7 @@ def create_run(scope: ReviewScope, request: Request):
             raise HTTPException(409, 'Your company has no AI Review credits left. Contact your administrator.')
         if scope.key_id and current_user(request)['role'] != 'admin':
             raise HTTPException(403, 'Only the platform administrator can choose an API key.')
+        scope = apply_company_periods(scope, company_row(conn).get('matching_filter_defaults'))
         scope = resolve_prompt(conn, scope, request)
         key_id = resolve_key_id(conn, scope.key_id)
         items, estimate, info = plan_run(conn, scope)
@@ -1009,10 +1034,11 @@ def export_approved(run_id: uuid.UUID, output: Literal['grouped', 'single'] = 'g
         run = run_summary(conn, run_id)
         selected = approved_pairs(conn, run)
         company = company_row(conn)
-    if not selected:
-        raise HTTPException(404, 'Jev has not recommended any pair in this run yet.')
-    group_by = company['listing_group_by'] or 'sender'
-    return people_file(selection_people(selected, group_by), group_by, company['company_name'], output, 'Saran-AI-Disetujui')
+        if not selected:
+            raise HTTPException(404, 'Jev has not recommended any pair in this run yet.')
+        group_by = company['listing_group_by'] or 'sender'
+        people = selection_people(conn, selected, group_by)
+    return people_file(people, group_by, company['company_name'], output, 'Saran-AI-Disetujui')
 
 
 # ---------------------------------------------------------------- worker

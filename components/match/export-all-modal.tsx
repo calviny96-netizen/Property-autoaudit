@@ -119,7 +119,7 @@ function Body({ direction, filters, initialScope, onLock, onClose }: {
   const replanning = plan.loading && !!data;
   const planBoth = !!data?.combined;
   const planGroupBy: GroupBy = data?.group_by ?? groupBy ?? 'sender';
-  const byPhone = planGroupBy === 'phone';
+  const byPhone = planGroupBy !== 'sender';
   const unit: [string, string] = byPhone ? ['sales contact', 'sales contacts'] : ['sender', 'senders'];
   const groups = useMemo(() => data?.groups ?? [], [data]);
   const selected = useMemo(() => {
@@ -289,11 +289,11 @@ function Body({ direction, filters, initialScope, onLock, onClose }: {
 
         {data && canEdit && (
           <>
-            <FilterGroup label="Group the PDFs by" hint={byPhone ? 'The name and phone number written in the message signature.' : 'The person who posted the message in WhatsApp.'}>
-              <Segmented label="Group the PDFs by" value={groupBy ?? planGroupBy} onChange={changeGrouping} fullWidth
-                options={[{ id: 'sender', label: 'Sender' }, { id: 'phone', label: 'Sales contact' }]} />
+            <FilterGroup label="Group the PDFs by" hint={planGroupBy === 'sales' ? 'The Sales Watchlist number in the message.' : byPhone ? 'The phone number in the message signature.' : 'The person who posted the message in WhatsApp.'}>
+              <Segmented<GroupBy> label="Group the PDFs by" value={groupBy ?? planGroupBy} onChange={changeGrouping} fullWidth
+                options={[{ id: 'sender', label: 'Sender' }, { id: 'sales', label: 'Sales Watchlist' }]} />
             </FilterGroup>
-            {replanning && <LoadingIndicator message={`Loading ${(groupBy ?? planGroupBy) === 'phone' ? 'sales contacts' : 'senders'}…`} />}
+            {replanning && <LoadingIndicator message={`Loading ${(groupBy ?? planGroupBy) === 'sender' ? 'senders' : 'sales contacts'}…`} />}
 
             {groups.length === 0 && !replanning && (
               <EmptyState compact title="Nothing to export for these filters" description="Change the dates or turn on more statuses (Hot, Warm, Custom or No match), then try again." />

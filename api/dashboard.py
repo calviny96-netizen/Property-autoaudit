@@ -405,12 +405,12 @@ def compute_overview(period, date_from, date_to):
         match_prev = _match_counts(conn, info['prev_start'], info['prev_end'])
         pref = conn.execute('SELECT listing_group_by FROM xm.app_preferences WHERE company_id = %s', (ws,)).fetchone()
         group_by = pref['listing_group_by'] if pref else 'sender'
-        from workspace_cache import GROUP_KEYS
-        key_sql = GROUP_KEYS['sender' if group_by == 'sender' else 'phone']
+        from workspace_cache import grouped_listing_documents, grouping
+        key_sql, name_sql, group_join = grouping(group_by)
         top_sales = conn.execute(
-            f'''SELECT {key_sql} AS k, count(*) AS n, mode() WITHIN GROUP (ORDER BY d.contact_name) AS contact_name
-                FROM xm.document_groups g JOIN xm.documents d ON d.id = g.group_id JOIN xm.raw_messages r ON r.id = d.raw_message_id
-                WHERE g.company_id = current_setting('xm.workspace_id') AND g.document_type = 'property_listing' AND g.status = 'ready'
+            f'''SELECT {key_sql} AS k, count(DISTINCT g.group_id) AS n, mode() WITHIN GROUP (ORDER BY {name_sql}) AS contact_name
+                FROM xm.document_groups g {grouped_listing_documents(group_by)} JOIN xm.raw_messages r ON r.id=d.raw_message_id{group_join}
+                WHERE g.company_id = current_setting('xm.workspace_id') AND g.document_type = 'property_listing' AND g.status = 'ready' AND d.active
                 ''' + scope_sql + ' GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 10', scope_params).fetchall()
         latest = conn.execute(
             '''SELECT max(r.sent_at)::date AS day FROM xm.documents d JOIN xm.raw_messages r ON r.id = d.raw_message_id

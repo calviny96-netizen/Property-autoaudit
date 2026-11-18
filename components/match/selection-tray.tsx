@@ -7,6 +7,7 @@ import { StatusBadge } from '@/components/app/primitives';
 import { errorMessage } from '@/lib/api';
 import { countLabel, formatPhone, number, todayWib } from '@/lib/format';
 import { BASKET_MAX, personOf, type BasketItem, type SelectionBasket } from '@/lib/selection-basket';
+import { useCompany } from '@/lib/session';
 import type { Direction, GroupBy } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useApi } from '@/lib/workspace-context';
@@ -34,6 +35,8 @@ type Person = { key: string; title: string; phone: string; items: BasketItem[]; 
  */
 export function SelectionTray({ basket, groupBy }: { basket: SelectionBasket; groupBy: GroupBy }) {
   const api = useApi();
+  const { company } = useCompany();
+  const tracked = useMemo(() => new Set(company?.tracked_phones), [company?.tracked_phones]);
   const id = useId();
   const [open, setOpen] = useState(false);
   const [output, setOutputState] = useState<Output>(savedOutput);
@@ -55,7 +58,7 @@ export function SelectionTray({ basket, groupBy }: { basket: SelectionBasket; gr
   const people = useMemo(() => {
     const map = new Map<string, Person>();
     for (const item of items) {
-      const person = personOf(item, groupBy);
+      const person = personOf(item, groupBy, tracked);
       const entry = map.get(person.key) ?? { ...person, items: [], sources: 0 };
       if (!entry.phone && person.phone) entry.phone = person.phone;
       entry.items.push(item);
@@ -66,10 +69,10 @@ export function SelectionTray({ basket, groupBy }: { basket: SelectionBasket; gr
       entry.items.sort((a, b) => DIRECTIONS.indexOf(a.direction) - DIRECTIONS.indexOf(b.direction) || a.added_at - b.added_at);
     }
     return [...map.values()].sort((a, b) => b.sources - a.sources || a.key.localeCompare(b.key));
-  }, [items, groupBy]);
+  }, [items, groupBy, tracked]);
 
   if (!items.length) return null;
-  const unit = groupBy === 'phone' ? ['sales contact', 'sales contacts'] : ['sender', 'senders'];
+  const unit = groupBy === 'sender' ? ['sender', 'senders'] : ['sales contact', 'sales contacts'];
 
   async function download() {
     setDownloading(true);
@@ -98,7 +101,7 @@ export function SelectionTray({ basket, groupBy }: { basket: SelectionBasket; gr
         {open && (
           <div id={`${id}-list`} className="max-h-[min(60dvh,32rem)] space-y-4 overflow-y-auto border-b border-separator p-3 sm:p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-muted">Grouped by {unit[0]}, as in the download. Ticks stay when you switch {groupBy === 'phone' ? 'contacts' : 'senders'}, directions or filters.</p>
+              <p className="text-sm text-muted">Grouped by {unit[0]}, as in the download. Ticks stay when you switch {groupBy === 'sender' ? 'senders' : 'contacts'}, directions or filters.</p>
               {confirmClear ? (
                 <span className="flex items-center gap-1.5">
                   <span className="text-sm font-semibold text-foreground">Clear all {number(items.length)}?</span>

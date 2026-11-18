@@ -59,7 +59,7 @@ class Filters(MatchingPeriods):
     statuses: str = 'hot,warm,custom'
     stock_status: str = 'ready'
     public_id: str = ''
-    group_by: Literal['sender', 'phone'] | None = None
+    group_by: Literal['sender', 'phone', 'sales'] | None = None
     # Empty for manual export; an integration stream opts in to delivery deduplication.
     delivery_scope: str = Field(default='', max_length=200)
     # Recent exports use discovery dates and logged pairs, not posting dates.
@@ -129,15 +129,16 @@ def recent_scope(conn, filters, group_by, group_key=None):
     if filters.recent_events is not None:
         sql += ' AND me.id=ANY(%s::bigint[])'
         params.append(filters.recent_events)
-    key = workspace_cache.GROUP_KEYS[group_by]
+    key, name, group_join = workspace_cache.grouping(group_by)
+    phone = key if group_by == 'sales' else 'd.contact_phone'
     sql += f'''), eligible AS (
-      SELECT d.id,g.group_id,r.sent_at,r.author,d.contact_name,d.contact_phone,{key} group_key,
+      SELECT d.id,g.group_id,r.sent_at,r.author,{name} contact_name,{phone} contact_phone,{key} group_key,
         c.hot_count,c.warm_count,c.custom_count
       FROM (SELECT source_entity,count(*) FILTER(WHERE last_status='hot') hot_count,
           count(*) FILTER(WHERE last_status='warm') warm_count,
           count(*) FILTER(WHERE last_status='custom') custom_count FROM recent_pairs GROUP BY source_entity) c
       JOIN xm.document_groups g ON g.entity_id=c.source_entity
-      JOIN xm.documents d ON d.id=g.group_id JOIN xm.raw_messages r ON r.id=d.raw_message_id
+      JOIN xm.documents d ON d.id=g.group_id JOIN xm.raw_messages r ON r.id=d.raw_message_id{group_join}
       WHERE g.company_id=current_setting('xm.workspace_id')'''
     if group_key is not None:
         sql += f' AND {key}=%s'
@@ -212,6 +213,8 @@ def combined_groups(conn, request, filters, group_by, chosen):
 
 def pdf_title(group_by, group):
     """Section name printed in the (Indonesian) PDF: the display title, with Indonesian fallbacks."""
+    if group_by == 'sales' and not group['key']:
+        return 'Di luar Sales Watchlist'
     if group_by == 'phone' and not group['key']:
         return 'Tanpa nomor telepon'
     if group_by == 'sender' and group['key'] == workspace_cache.NO_SENDER:
@@ -290,7 +293,7 @@ def part(payload: Part, request: Request):
     cover = None
     if payload.offset == 0 and stats:
         # The PDF is a document for other people and stays Indonesian.
-        cover = {**stats[0], 'title': section, 'kind': 'Nomor telepon' if group_by == 'phone' else 'Pengirim',
+        cover = {**stats[0], 'title': section, 'kind': 'Nomor telepon' if group_by != 'sender' else 'Pengirim',
                  'direction': payload.direction}
         if payload.combined:
             present = [s['direction'] for s in sections]
@@ -438,18 +441,30 @@ def selected_pairs(payload):
     return selected
 
 
-def person_key(group_by, source):
-    """The source's sender / phone group, the same key as workspace_cache.GROUP_KEYS."""
+def person_key(group_by, source, sales):
+    """Mirror the SQL grouping when exporting hand-picked pairs."""
+    if group_by == 'sales':
+        return sales.get(source['id'], {}).get('phone', '')
     if group_by == 'phone':
         return source.get('contact_phone') or ''
     return (source.get('author') or '').strip(' ') or workspace_cache.NO_SENDER
 
 
-def selection_people(selected, group_by):
+def selection_people(conn, selected, group_by):
     """One entry per person (owner of the source side): title, phone and the pairs per direction in app order."""
+    sales, labels = {}, {}
+    if group_by == 'sales':
+        _, _, group_join = workspace_cache.grouping(group_by)
+        ids = list({source['id'] for _, source, _, _ in selected})
+        rows = conn.execute(f"""SELECT d.id,sale.phone,sale.label FROM xm.documents d
+          JOIN xm.raw_messages r ON r.id=d.raw_message_id{group_join}
+          WHERE d.company_id=current_setting('xm.workspace_id') AND d.id=ANY(%s::uuid[])""", (ids,)).fetchall()
+        sales = {row['id']: row for row in rows}
+        labels = {row['phone']: row['label'] for row in rows}
     people = {}
     for direction, source, target, position in selected:
-        person = people.setdefault(person_key(group_by, source), {'sections': {}, 'names': Counter(), 'phones': []})
+        key = person_key(group_by, source, sales)
+        person = people.setdefault(key, {'sections': {}, 'names': Counter(), 'phones': []})
         person['sections'].setdefault(direction, []).append((source, target, position))
         if source.get('contact_name'):
             person['names'][source['contact_name']] += 1
@@ -458,6 +473,8 @@ def selection_people(selected, group_by):
     result = []
     for key, person in people.items():
         contact_name = person['names'].most_common(1)[0][0] if person['names'] else None
+        if group_by == 'sales':
+            contact_name = labels.get(key)
         title = workspace_cache.group_title(group_by, key, contact_name)
         sections = {}
         for direction in SECTION_ORDER:
@@ -470,7 +487,7 @@ def selection_people(selected, group_by):
             items.sort(key=lambda item: item[0].get('sent_at').timestamp() if item[0].get('sent_at') else float('-inf'), reverse=True)
             sections[direction] = items
         result.append({'key': key, 'title': title, 'contact_name': clean_contact_name(contact_name) or '',
-                       'phone': (key if group_by == 'phone' else '') or next(iter(person['phones']), ''),
+                       'phone': key if group_by != 'sender' else next(iter(person['phones']), ''),
                        'sources': sum(len({str(s['id']) for s, _, _ in items}) for items in sections.values()),
                        'sections': sections})
     return sorted(result, key=lambda person: (-person['sources'], person['key']))
@@ -492,7 +509,7 @@ def person_pdf_parts(person, group_by, company_name):
     for index, direction in enumerate(present, 1):
         items = person['sections'][direction]
         cover = {**section_counts(items), 'key': person['key'], 'title': section,
-                 'kind': 'Nomor telepon' if group_by == 'phone' else 'Pengirim', 'direction': direction,
+                 'kind': 'Nomor telepon' if group_by != 'sender' else 'Pengirim', 'direction': direction,
                  'combined': True, 'part': index, 'parts': len(present), 'phone': person['phone']}
         parts.append(BytesIO(build_report([(source, target) for source, target, _ in items], direction, section=section, cover=cover,
                                           first_pair=number, combined=True, company_name=company_name)))
@@ -507,8 +524,9 @@ def export_selection(payload: Selection):
     selected = selected_pairs(payload)
     with connect() as conn:
         company = company_row(conn)
-    group_by = company['listing_group_by'] or 'sender'
-    return people_file(selection_people(selected, group_by), group_by, company['company_name'], payload.output, 'Pilihan-Pencocokan')
+        group_by = company['listing_group_by'] or 'sender'
+        people = selection_people(conn, selected, group_by)
+    return people_file(people, group_by, company['company_name'], payload.output, 'Pilihan-Pencocokan')
 
 
 def people_file(people, group_by, company_name, output, base):

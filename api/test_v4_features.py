@@ -465,6 +465,26 @@ class GroupByTests(V4Case):
         self.call(self.staff, '/workspace/groups?group_by=nonsense', status=400)
         self.call(self.staff, '/workspace?direction=buyer&group_by=sender&group_key=x', status=400)
 
+    def test_sales_groups_use_only_watchlisted_numbers_in_the_bubble(self):
+        tracked = '6282233744657'
+        alternate = 'Dijual rumah Surabaya Barat LT 100 Harga 1,8 M\nContact: Budi 081234567890 / 0822-3374-4657'
+        body_only = 'Dijual rumah Surabaya Barat LT 120 Harga 2,1 M\nNomor +62 822-3374-4657 tercantum di brosur\nHarga 2,1 M\nContact: Dewi 081202310022'
+        sender_only = 'Dijual rumah Surabaya Barat LT 140 Harga 2,4 M\nContact: Dewi 081202310022'
+        self.run_import([(alternate, '~ Andi'), (body_only, '~ Budi'), (sender_only, f'~ Sari, +{tracked}')])
+        self.call(self.boss, '/company/settings', 'PUT', {'listing_group_by': 'sales'})
+        self.assertEqual(self.call(self.staff, '/workspace/groups')['groups'], [])
+        self.call(self.boss, '/stock/tracked', 'PUT', {'phones': [tracked], 'labels': {tracked: 'Sales Sari'}})
+
+        groups = self.call(self.staff, '/workspace/groups')['groups']
+        self.assertEqual([(item['key'], item['count'], item['contact_name']) for item in groups], [(tracked, 2, 'Sales Sari')])
+        rows = self.rows(direction='property', group_by='sales', group_key=tracked)
+        self.assertEqual({row['raw_text'] for row in rows}, {alternate, body_only})
+        self.assertNotIn(tracked, self.card(rows, 'brosur')['contact_phones'])
+        self.assertEqual(len(self.rows(direction='property')), 3)
+        plan = self.call(self.staff, '/export/all/plan', 'POST', {'direction': 'property', 'statuses': 'unmatched'})
+        self.assertEqual([(item['key'], item['sources'], item['phone']) for item in plan['groups']], [(tracked, 2, tracked)])
+        self.assertEqual(self.groups('sales', group_search='Sales Sari')['groups'][0]['key'], tracked)
+
     def test_company_default_grouping_is_a_company_setting(self):
         self.assertEqual(self.call(self.staff, '/company/settings')['listing_group_by'], 'sender')
         self.call(self.staff, '/company/settings', 'PUT', {'listing_group_by': 'phone'}, status=403)

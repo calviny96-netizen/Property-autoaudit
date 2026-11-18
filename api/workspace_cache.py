@@ -14,21 +14,55 @@ from search_terms import search_filter
 from tenant import workspace_id
 from matching_scope import document_scope_filter
 
-# What a "group" key means when listings are grouped by sender or phone number.
 GROUP_KEYS = {
     'sender': "coalesce(nullif(btrim(r.author),''),'Tanpa nama pengirim')",  # = NO_SENDER
     'phone': "coalesce(nullif(d.contact_phone,''),'')",
+    'sales': 'sale.phone',
 }
 DEFAULT_TARGET_STATUSES = ('ready',)
 NO_SENDER = 'Tanpa nama pengirim'  # raw group key of messages without an author; shown as "Unknown sender"
+# A phone can appear in the body without a signature. Match whole mobile numbers.
+BUBBLE_PHONE_PATTERN = r'(?<![0-9])(?:[+]?62[ .-]?|0)8[0-9 .-]{6,15}[0-9](?![0-9])'
+
+
+def grouping(group_by):
+    """Key, label, and join for a document/raw-message pair (aliases d/r)."""
+    if group_by == 'sales':
+        # Prefer the primary contact when tracked, then other contacts in message order.
+        # The inner join excludes every posting without a watchlisted message contact.
+        return GROUP_KEYS[group_by], 'sale.label', f''' JOIN LATERAL (
+          SELECT t.phone, t.label
+          FROM xm.tracked_sales t
+          WHERE t.company_id=d.company_id AND t.phone=coalesce(
+            (SELECT p.phone
+             FROM unnest(ARRAY[d.contact_phone] || d.contact_phones) WITH ORDINALITY AS p(phone, position)
+             JOIN xm.tracked_sales s ON s.company_id=d.company_id AND s.phone=p.phone
+             ORDER BY p.position LIMIT 1),
+            (SELECT s.phone
+             FROM regexp_matches(normalize(r.raw_text, NFKC), '{BUBBLE_PHONE_PATTERN}', 'g')
+                  WITH ORDINALITY AS p(parts, position)
+             CROSS JOIN LATERAL (SELECT regexp_replace(p.parts[1], '[^0-9]', '', 'g') digits) n
+             JOIN xm.tracked_sales s ON s.company_id=d.company_id
+               AND s.phone=CASE WHEN left(n.digits,1)='0' THEN '62' || substr(n.digits,2) ELSE n.digits END
+             ORDER BY p.position LIMIT 1))
+        ) sale ON true'''
+    return GROUP_KEYS.get(group_by, "''"), 'd.contact_name', ''
+
+
+def grouped_listing_documents(group_by):
+    """Watchlist grouping can use any qualifying copy of a listing."""
+    if group_by == 'sales':
+        return '''JOIN xm.document_group_members gm ON gm.group_id=g.group_id
+                  JOIN xm.documents d ON d.id=gm.document_id'''
+    return 'JOIN xm.documents d ON d.id=g.group_id'
 
 
 def group_title(group_by, key, contact_name=None):
     """How a sender / phone group is shown: a clean WhatsApp name, or "<contact name> · <phone>"."""
     from stock import clean_contact_name, display_phone, sender_title
-    if group_by == 'phone':
+    if group_by != 'sender':
         if not key:
-            return 'No phone number'
+            return 'Outside sales watchlist' if group_by == 'sales' else 'No phone number'
         name = clean_contact_name(contact_name)
         return (f'{name} · ' if name else '') + display_phone(key)
     return 'Unknown sender' if key == NO_SENDER else (sender_title(key) or key)
@@ -143,14 +177,15 @@ def _eligible(direction, search, phones, statuses, clause, date_params, stock_st
     if 'custom' in selected: filters.append(f'{custom}>0')
     if 'unmatched' in selected: filters.append(f'{hot}+{warm}+{custom}=0')
     params += [kind, list(stock_statuses)]
-    key_sql = GROUP_KEYS[group_by] if group_by in GROUP_KEYS else "''"
+    key_sql, name_sql, group_join = grouping(group_by)
+    phone_sql = key_sql if group_by == 'sales' else 'd.contact_phone'
     distinct = 'g.group_id' + (f',{key_sql}' if per_key else '')
     sql = prefix + f'''eligible AS (
-      SELECT DISTINCT ON ({distinct}) d.id,g.group_id,r.sent_at,r.author,d.contact_phone,d.contact_name,
+      SELECT DISTINCT ON ({distinct}) d.id,g.group_id,r.sent_at,r.author,{phone_sql} contact_phone,{name_sql} contact_name,
         {key_sql} AS group_key,{hot} hot_count,{warm} warm_count,{custom} custom_count,
         count(*) OVER(PARTITION BY g.group_id) duplicate_count
       FROM xm.document_groups g JOIN xm.document_group_members gm ON gm.group_id=g.group_id
-      JOIN xm.documents d ON d.id=gm.document_id JOIN xm.raw_messages r ON r.id=d.raw_message_id{count_join}
+      JOIN xm.documents d ON d.id=gm.document_id JOIN xm.raw_messages r ON r.id=d.raw_message_id{group_join}{count_join}
       WHERE g.company_id=current_setting('xm.workspace_id') AND d.active AND g.document_type=%s AND g.status=ANY(%s)
         AND (''' + (' OR '.join(filters) or 'false') + ')'
     search_clause, search_params = search_filter(search)
@@ -203,11 +238,11 @@ def sources(conn, direction, search, phones, statuses, clause, date_params, offs
 def group_summary(conn, direction, search, phones, statuses, clause, date_params,
                   stock_statuses=DEFAULT_TARGET_STATUSES, public_id='', group_by='sender', group_search='', limit=200, offset=0,
                   target_clause='', target_params=()):
-    """Listings per sender or per phone number, with the same filters as the card list."""
+    """Listings per sender or sales contact, with the same filters as the card list."""
     if group_by not in GROUP_KEYS:
         raise HTTPException(400, 'Unknown grouping.')
     eligible, params = _eligible(direction, search, phones, statuses, clause, date_params, stock_statuses, public_id, group_by, None,
-                                 target_clause=target_clause, target_params=target_params, conn=conn)
+                                 per_key=group_by == 'sales', target_clause=target_clause, target_params=target_params, conn=conn)
     having = ''
     if group_search.strip():
         having = " HAVING e.group_key ILIKE %s OR coalesce(mode() WITHIN GROUP (ORDER BY e.contact_name),'') ILIKE %s"

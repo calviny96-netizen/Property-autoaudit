@@ -280,8 +280,13 @@ ALTER TABLE xm.app_preferences ADD COLUMN IF NOT EXISTS matching_mode text NOT N
 ALTER TABLE xm.imports ADD COLUMN IF NOT EXISTS matching_mode text
  CHECK (matching_mode IN ('company','sales'));
 DO $$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='xm.app_preferences'::regclass
+            AND conname='app_preferences_group_by_check' AND pg_get_constraintdef(oid) NOT LIKE '%''sales''%') THEN
+  ALTER TABLE xm.app_preferences DROP CONSTRAINT app_preferences_group_by_check;
+  UPDATE xm.app_preferences SET listing_group_by='sales' WHERE listing_group_by='phone';
+ END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='xm.app_preferences'::regclass AND conname='app_preferences_group_by_check') THEN
-  ALTER TABLE xm.app_preferences ADD CONSTRAINT app_preferences_group_by_check CHECK (listing_group_by IN ('sender','phone'));
+  ALTER TABLE xm.app_preferences ADD CONSTRAINT app_preferences_group_by_check CHECK (listing_group_by IN ('sender','phone','sales'));
  END IF;
 END $$;
 

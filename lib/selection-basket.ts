@@ -22,6 +22,7 @@ export type BasketItem = {
   source_author?: string | null;
   source_contact_name?: string | null;
   source_phone?: string | null;
+  source_phones?: string[];
   target_public_id?: string;
   target_name?: string | null;
   status: MatchStatus;
@@ -32,16 +33,22 @@ export const basketKey = (direction: Direction, sourceId: string, targetId?: str
 const keyOf = (item: BasketItem) => basketKey(item.direction, item.source_id, item.target_id);
 
 export function basketItem(direction: Direction, source: Row, target: Row | null): BasketItem {
+  const bubblePhones = (source.raw_text ?? '').normalize('NFKC').match(/(?<![0-9])(?:\+?62[ .-]?|0)8[0-9 .-]{6,15}[0-9](?![0-9])/g) ?? [];
   return {
     direction, source_id: source.id, target_id: target?.id ?? null, source_public_id: source.public_id,
     source_author: source.author, source_contact_name: source.contact_name, source_phone: source.contact_phone,
+    source_phones: [...new Set([...(source.contact_phones ?? []), ...bubblePhones.map((phone) => phone.replace(/[^0-9]/g, '').replace(/^0/, '62'))])],
     target_public_id: target?.public_id, target_name: target ? cleanName(target.contact_name) || null : null,
     status: target ? matchStatusOf(target) : 'unmatched', added_at: Date.now(),
   };
 }
 
 /** The person a pair is grouped under in the export: the same key as the server's company grouping. */
-export function personOf(item: BasketItem, groupBy: GroupBy) {
+export function personOf(item: BasketItem, groupBy: GroupBy, tracked: Set<string>) {
+  if (groupBy === 'sales') {
+    const phone = [item.source_phone ?? '', ...(item.source_phones ?? [])].find((number) => tracked.has(number)) ?? '';
+    return { key: phone, title: phone ? formatPhone(phone) : 'Outside sales watchlist', phone };
+  }
   if (groupBy === 'phone') {
     const phone = item.source_phone ?? '';
     const name = cleanName(item.source_contact_name);
