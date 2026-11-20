@@ -646,6 +646,16 @@ def collect_candidates(conn, scope):
     chosen = scope.chosen()
     wanted = set(scope.group_keys) if scope.group_keys is not None else None
     periods = scope.model_dump(include=set(MatchingPeriods.model_fields))
+    # Direction-independent public codes survive reindexing. Pending pairs are
+    # reserved only while their run is live, so failed/cancelled work can retry.
+    prior = conn.execute("""SELECT DISTINCT
+        CASE WHEN a.direction='buyer' THEN a.source_public_id ELSE a.target_public_id END AS buyer,
+        CASE WHEN a.direction='buyer' THEN a.target_public_id ELSE a.source_public_id END AS listing
+      FROM xm.ai_reviews a JOIN xm.ai_review_runs r ON r.id=a.run_id
+      WHERE a.company_id=current_setting('xm.workspace_id')
+        AND (a.status='done' OR (a.status='pending' AND r.status IN ('queued','running')))
+        AND a.source_public_id IS NOT NULL AND a.target_public_id IS NOT NULL""").fetchall()
+    reviewed = {(row['buyer'], row['listing']) for row in prior}
     found, truncated = [], False
     for direction in scope.direction_list():
         filters = Filters(direction=direction, statuses=','.join(chosen), stock_status='ready', group_by=group_by,
@@ -662,7 +672,8 @@ def collect_candidates(conn, scope):
                 source = group['source']
                 for rank, target in enumerate(group['recommendations']):
                     status = pair_status(target)
-                    if status in chosen:
+                    buyer, listing = (source, target) if direction == 'buyer' else (target, source)
+                    if status in chosen and (buyer.get('public_id'), listing.get('public_id')) not in reviewed:
                         found.append({'direction': direction, 'source': source, 'target': target, 'status': status, 'rank': rank,
                                       'group': groups_by_id[source['id']]})
             if len(found) >= SCAN_LIMIT:
@@ -1269,3 +1280,75 @@ def review_loop():
         except Exception as exc:
             print(f'Jev review chunk failed: {type(exc).__name__}: {exc}', flush=True)
         time.sleep(poll)
+
+
+@router.get('/pair-history')
+def pair_history(group: str | None = None, offset: int = 0,
+                 decision: Literal['all', 'recommend', 'reject', 'unsure'] = 'all',
+                 level: Literal['all', 'hot', 'warm', 'custom'] = 'all'):
+    from stock import sender_title
+    from parser import normalize_phone
+
+    with connect() as conn:
+        mode = company_row(conn)['listing_group_by'] or 'sender'
+        key, label, join = workspace_cache.grouping(mode)
+        # Either side may belong to a sales contact, even in a one-direction run.
+        cte = f"""WITH reviewed AS (
+          SELECT a.id,a.reviewed_at,a.engine_status,coalesce(a.override_decision,a.decision) AS decision,
+                 side.kind,side.code,side.other_code,side.doc_id
+          FROM xm.ai_reviews a CROSS JOIN LATERAL (VALUES
+            (a.direction,a.source_public_id,a.target_public_id,a.source_document_id),
+            (CASE WHEN a.direction='buyer' THEN 'property' ELSE 'buyer' END,
+             a.target_public_id,a.source_public_id,a.target_document_id)
+          ) AS side(kind,code,other_code,doc_id)
+          WHERE a.company_id=current_setting('xm.workspace_id') AND a.status='done'
+            AND a.source_public_id IS NOT NULL AND a.target_public_id IS NOT NULL
+        ), owned AS (
+          SELECT x.*, {key} AS owner, {label} AS label FROM reviewed x
+          JOIN xm.documents d ON d.id=x.doc_id AND d.company_id=current_setting('xm.workspace_id')
+          JOIN xm.raw_messages r ON r.id=d.raw_message_id {join}
+        ) """
+        if group is not None:
+            rows = conn.execute(cte + """SELECT page.*,a.buyer_text,a.listing_text FROM (SELECT * FROM (
+                SELECT DISTINCT ON (buyer,listing)
+                  CASE WHEN kind='buyer' THEN code ELSE other_code END AS buyer,
+                  CASE WHEN kind='buyer' THEN other_code ELSE code END AS listing, decision,engine_status,reviewed_at,id
+                FROM owned WHERE owner=%s ORDER BY buyer,listing,reviewed_at DESC NULLS LAST,id DESC
+              ) pairs WHERE (%s='all' OR decision=%s) AND (%s='all' OR engine_status=%s)
+              ORDER BY reviewed_at DESC NULLS LAST,id DESC LIMIT 51 OFFSET %s) page
+              JOIN xm.ai_reviews a ON a.id=page.id AND a.company_id=current_setting('xm.workspace_id')
+              ORDER BY page.reviewed_at DESC NULLS LAST,page.id DESC""",
+              [group, decision, decision, level, level, max(0, offset)]).fetchall()
+            return {'rows': rows[:50], 'has_more': len(rows) > 50}
+        rows = conn.execute(cte + """SELECT owner,max(label) AS label,
+            count(DISTINCT code) FILTER (WHERE kind='buyer') AS buyers,
+            count(DISTINCT code) FILTER (WHERE kind='property') AS listings
+          FROM owned GROUP BY owner ORDER BY max(reviewed_at) DESC NULLS LAST,owner""").fetchall()
+    for row in rows:
+        key = row['owner']
+        if mode == 'sender':
+            number = key.rsplit(',', 1)[-1].strip()
+            row['phone'] = normalize_phone(number) if re.fullmatch(r'[+0-9][0-9 ().-]{6,}', number) else ''
+            row['name'] = sender_title(key)
+        else:
+            row['phone'] = key
+            row['name'] = (row['label'] or '').strip() or '-'
+    return {'group_by': mode, 'groups': rows}
+
+
+@router.get('/pair-history/{review_id}/messages')
+def pair_history_messages(review_id: int):
+    with connect() as conn:
+        row = conn.execute("""SELECT
+            CASE WHEN a.direction='buyer' THEN sr.raw_text ELSE tr.raw_text END AS buyer,
+            CASE WHEN a.direction='buyer' THEN tr.raw_text ELSE sr.raw_text END AS listing
+          FROM xm.ai_reviews a
+          LEFT JOIN xm.documents s ON s.id=a.source_document_id AND s.company_id=a.company_id
+          LEFT JOIN xm.raw_messages sr ON sr.id=s.raw_message_id AND sr.company_id=a.company_id
+          LEFT JOIN xm.documents t ON t.id=a.target_document_id AND t.company_id=a.company_id
+          LEFT JOIN xm.raw_messages tr ON tr.id=t.raw_message_id AND tr.company_id=a.company_id
+          WHERE a.id=%s AND a.company_id=current_setting('xm.workspace_id') AND a.status='done'""",
+          (review_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, 'Review not found.')
+    return row

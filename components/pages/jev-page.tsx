@@ -5,6 +5,7 @@ import { Button, Chip } from '@heroui/react';
 import { Bot, ChevronRight, KeyRound, RefreshCw } from 'lucide-react';
 import { EmptyState, ErrorNotice, LoadingRows, Notice, PageHeader, Panel } from '@/components/app/primitives';
 import { NewReview } from '@/components/jev/new-review';
+import { PairHistory } from '@/components/jev/pair-history';
 import { RunView } from '@/components/jev/run-view';
 import { countLabel, number, relativeDateTime } from '@/lib/format';
 import { RUN_STATUS_COLORS, RUN_STATUS_LABELS, isActiveRun, usd } from '@/lib/jev';
@@ -21,11 +22,12 @@ export default function JevPage({ params, navigate }: { params?: URLSearchParams
   const { company } = useCompany();
   const runId = params?.get(ROUTE_PARAMS.run) ?? '';
   if (!company?.permissions.jev_review) return <Notice>Only company admins can use AI Review.</Notice>;
+  if (params?.get('view') === 'history') return <PairHistory back={() => open(ROUTES.jev)} />;
   if (runId) return <RunView key={runId} runId={runId} onBack={() => open(ROUTES.jev)} />;
-  return <Overview onOpenRun={(id) => open(ROUTES.jev, { [ROUTE_PARAMS.run]: id })} onOpenKeys={() => open(ROUTES.settings, { [ROUTE_PARAMS.tab]: 'ai' })} />;
+  return <Overview onHistory={() => open(ROUTES.jev, { view: 'history' })} onOpenRun={(id) => open(ROUTES.jev, { [ROUTE_PARAMS.run]: id })} onOpenKeys={() => open(ROUTES.settings, { [ROUTE_PARAMS.tab]: 'ai' })} />;
 }
 
-function Overview({ onOpenRun, onOpenKeys }: { onOpenRun: (id: string) => void; onOpenKeys: () => void }) {
+function Overview({ onOpenRun, onOpenKeys, onHistory }: { onHistory: () => void; onOpenRun: (id: string) => void; onOpenKeys: () => void }) {
   const api = useApi();
   const { user } = useSession();
   const technical = user.role === 'admin';
@@ -39,7 +41,7 @@ function Overview({ onOpenRun, onOpenKeys }: { onOpenRun: (id: string) => void; 
 
   return (
     <div className="space-y-6">
-      <PageHeader title="AI Review"
+      <PageHeader title="AI Review" actions={<Button variant="secondary" onPress={onHistory}>Matching history</Button>}
         description="Jev is an AI reviewer. It reads the pairs the matching rules found, the way an experienced agent would, and tells you which ones are worth recommending." />
       {technical && keys.data && keyList.length === 0 && (
         <Notice status="warning" title="Add an OpenRouter API key first" action={<Button size="sm" onPress={onOpenKeys}><KeyRound className="size-4" aria-hidden="true" />Open AI keys</Button>}>

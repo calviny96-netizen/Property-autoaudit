@@ -385,26 +385,33 @@ class RunTests(JevCase):
         # A model without response_format support is asked without it.
         self.assertNotIn('response_format', self.fake.chats()[-1]['payload'])
 
-    def test_cache_reuses_reviews_without_calling_the_api(self):
+    def test_history_skips_reviewed_pairs_across_models_and_directions(self):
         self.seed()
         self.add_key()
-        first = self.start()
-        self.work()
-        calls = len(self.fake.chats())
-        estimate = self.call(self.boss, '/ai/review-runs/estimate', 'POST', {'model': DEEPSEEK})
-        self.assertEqual((estimate['cached'], estimate['to_call'], estimate['cost']), (3, 0, 0))
-        second = self.start()
-        self.work()
-        self.assertEqual(len(self.fake.chats()), calls)
-        summary = self.call(self.boss, f"/ai/review-runs/{second['id']}")
-        self.assertEqual((summary['status'], summary['done'], summary['cached'], summary['cost']), ('completed', 6, 6, 0))
-        before = {(i['buyer_entity_id'], i['listing_entity_id'], i['direction']): i['decision']
-                  for g in self.call(self.boss, f"/ai/review-runs/{first['id']}/results")['groups'] for i in g['items']}
-        after = {(i['buyer_entity_id'], i['listing_entity_id'], i['direction']): i['decision']
-                 for g in self.call(self.boss, f"/ai/review-runs/{second['id']}/results")['groups'] for i in g['items']}
-        self.assertEqual(before, after)
-        # Another model is a different cache entry.
-        self.assertEqual(self.call(self.boss, '/ai/review-runs/estimate', 'POST', {'model': 'acme/plain-model'})['to_call'], 3)
+        windows = dict(buyer_date_from='', buyer_date_to='', listing_date_from='', listing_date_to='')
+        self.start(**windows)
+        for phase in ('pending', 'done'):
+            for direction in ('buyer', 'property'):
+                estimate = self.call(self.boss, '/ai/review-runs/estimate', 'POST',
+                                     dict(windows, model=DEEPSEEK, directions=direction))
+                self.assertEqual(estimate['pairs'], 0, (phase, direction))
+            if phase == 'pending':
+                self.work()
+        self.assertEqual(self.call(self.boss, '/ai/review-runs/estimate', 'POST',
+                                   dict(windows, model='acme/plain-model'))['pairs'], 0)
+        history = self.call(self.boss, '/ai/pair-history')
+        self.assertTrue(history['groups'])
+        from urllib.parse import urlencode
+        for group in history['groups']:
+            pairs = self.call(self.boss, '/ai/pair-history?' + urlencode({'group': group['owner']}))['rows']
+            self.assertTrue(pairs)
+            self.assertEqual(len(pairs), len({(row['buyer'], row['listing']) for row in pairs}))
+            example = pairs[0]
+            filters = {'group': group['owner'], 'decision': example['decision'], 'level': example['engine_status']}
+            filtered = self.call(self.boss, '/ai/pair-history?' + urlencode(filters))['rows']
+            self.assertEqual([row['id'] for row in filtered], [
+                row['id'] for row in pairs if row['decision'] == filters['decision'] and row['engine_status'] == filters['level']
+            ])
 
     def test_cancel_stops_before_the_next_chunk(self):
         self.seed()
