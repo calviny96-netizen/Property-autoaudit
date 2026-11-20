@@ -27,9 +27,12 @@ class FilterDefaultsPolicyTests(unittest.TestCase):
             manual = ReviewScope(source='match', buyer_date_from='', buyer_date_to='')
             self.assertEqual(apply_company_periods(manual, defaults).buyer_date_from, '')
             self.assertEqual(apply_company_periods(manual, defaults).listing_date_from, '2026-02-28')
-            for manual in (ReviewScope(source='recent'), ReviewScope(found_from='2026-05-20'),
-                           ReviewScope(date_from='2026-05-20')):
-                self.assertIs(apply_company_periods(manual, defaults), manual)
+            legacy = apply_company_periods(ReviewScope(source='recent', found_to='2026-11-19'), defaults)
+            self.assertEqual(legacy.source, 'match')
+            self.assertEqual(legacy.buyer_date_from, '2026-11-13')
+            self.assertEqual(legacy.listing_date_from, '2026-08-19')
+            manual = ReviewScope(date_from='2026-05-20')
+            self.assertIs(apply_company_periods(manual, defaults), manual)
 
     def test_presets_are_validated_and_both_periods_are_required(self):
         for period in ('all', 'today', 'today_yesterday', 'last_3_days', 'last_7_days', 'last_14_days', 'last_1_month', 'last_3_months'):

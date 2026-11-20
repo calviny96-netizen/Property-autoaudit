@@ -479,7 +479,7 @@ class ReviewScope(MatchingPeriods):
     model_config = ConfigDict(extra='forbid')
     model: str = Field(default=DEFAULT_MODEL, max_length=200)
     key_id: uuid.UUID | None = None
-    source: Literal['recent', 'match'] = 'recent'
+    source: Literal['recent', 'match'] = 'match'
     found_from: str = ''
     found_to: str = ''
     prompt_id: uuid.UUID | None = None
@@ -499,13 +499,10 @@ class ReviewScope(MatchingPeriods):
     def default_windows(self):
         explicit = self.model_fields_set
         # Keep the fields set by the caller distinguishable from fallback dates.
-        today = datetime.now(WIB).date()
-        # Existing API callers with explicit posting windows retain their manual scope.
-        if 'source' not in explicit and explicit & MatchingPeriods.model_fields.keys():
-            object.__setattr__(self, 'source', 'match')
-        if self.source == 'recent':
-            object.__setattr__(self, 'found_from', self.found_from or today.isoformat())
-            object.__setattr__(self, 'found_to', self.found_to or self.found_from)
+        today = self.reference_day()
+        # Older workflow clients send a discovery date. Use it as the reference
+        # day for rolling posting windows, never as a match-event filter.
+        object.__setattr__(self, 'source', 'match')
         # Explicit empty strings mean all dates. Preserve custom and legacy windows.
         if explicit & {'date_from', 'date_to'}:
             return self
@@ -515,6 +512,13 @@ class ReviewScope(MatchingPeriods):
                 object.__setattr__(self, begin, start.isoformat())
                 object.__setattr__(self, end, today.isoformat())
         return self
+
+    def reference_day(self):
+        if self.found_from or self.found_to:
+            from periods import date_filter
+            date_filter(self.found_from, self.found_to)
+            return datetime.fromisoformat(self.found_to or self.found_from).date()
+        return datetime.now(WIB).date()
 
     @field_validator('model')
     @classmethod
@@ -538,9 +542,7 @@ def apply_company_periods(scope, defaults):
     explicit = scope.model_fields_set
     if not defaults or explicit & {'date_from', 'date_to'}:
         return scope
-    if scope.source == 'recent' and explicit & {'source', 'found_from', 'found_to'}:
-        return scope
-    windows = MatchingFilterDefaults.model_validate(defaults).windows(datetime.now(WIB).date())
+    windows = MatchingFilterDefaults.model_validate(defaults).windows(scope.reference_day())
     updates = {'source': 'match', 'found_from': '', 'found_to': ''}
     for kind in ('buyer', 'listing'):
         begin, end = f'{kind}_date_from', f'{kind}_date_to'
@@ -636,7 +638,7 @@ def _part(row):
 
 def collect_candidates(conn, scope):
     """(group_by, deduplicated pairs in review order, number of pairs found, scan truncated?)."""
-    from export_all import Filters, scope as export_scope, recent_pairs
+    from export_all import Filters, scope as export_scope
     from report import pair_status
     group_by = company_row(conn)['listing_group_by'] or 'sender'
     if not workspace_cache.ready(conn):
@@ -647,27 +649,13 @@ def collect_candidates(conn, scope):
     found, truncated = [], False
     for direction in scope.direction_list():
         filters = Filters(direction=direction, statuses=','.join(chosen), stock_status='ready', group_by=group_by,
-                          recent=scope.source == 'recent', found_from=scope.found_from, found_to=scope.found_to, **periods)
+                          **periods)
         _, eligible, params = export_scope(conn, None, filters)
         sources = conn.execute('WITH ' + eligible + ' SELECT id,group_key,contact_name FROM eligible ORDER BY sent_at DESC NULLS LAST,id', params).fetchall()
         groups_by_id = {row['id']: row for row in sources if wanted is None or row['group_key'] in wanted}
         _, (target_clause, target_params) = filters.windows(direction)
         ids = list(groups_by_id)
         for start in range(0, len(ids), 100):
-            if scope.source == 'recent':
-                historical = recent_pairs(conn, eligible, params, ids[start:start + 100])
-                from matchlog import pair_explanations
-                reasons = pair_explanations(conn, [(a['entity_id'], b['entity_id']) if direction == 'buyer' else
-                                                 (b['entity_id'], a['entity_id']) for a, b in historical])
-                for rank, (source, target) in enumerate(historical):
-                    pair = (source['entity_id'], target['entity_id']) if direction == 'buyer' else (target['entity_id'], source['entity_id'])
-                    target['explanation'] = reasons.get(tuple(map(str, pair)), [])
-                    found.append({'direction': direction, 'source': source, 'target': target, 'status': target['status'],
-                                  'rank': rank, 'group': groups_by_id[source['id']]})
-                if len(found) >= SCAN_LIMIT:
-                    truncated = True
-                    break
-                continue
             groups = workspace_cache.recommendations(conn, direction, ids[start:start + 100], target_clause=target_clause,
                                                      target_params=target_params)['groups']
             for group in groups:

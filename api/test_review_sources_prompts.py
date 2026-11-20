@@ -12,9 +12,9 @@ class ReviewSourcesPrompts(JevCase):
     def add_key(self):
         return self.call(self.admin, '/ai/keys', 'POST', {'label': 'Test', 'api_key': SECRET}, owner=self.user, status=201)
 
-    def test_recent_keeps_old_postings_and_manual_dates_stay_independent(self):
+    def test_old_postings_remain_in_recent_but_are_excluded_from_review(self):
         self.assertEqual(ai_review.ReviewScope(buyer_date_from='2026-09-01').source, 'match')
-        self.assertEqual(ai_review.ReviewScope().source, 'recent')
+        self.assertEqual(ai_review.ReviewScope().source, 'match')
         self.seed()
         today = datetime.now(WIB).date().isoformat()
         with workspace_scope(self.company['company_id']), connect() as conn:
@@ -23,8 +23,8 @@ class ReviewSourcesPrompts(JevCase):
         for direction in ('buyer', 'property'):
             recent = self.call(self.boss, f'/matches/recent?direction={direction}&date_from={today}&date_to={today}')
             estimate = self.call(self.boss, '/ai/review-runs/estimate', 'POST', {'model': DEEPSEEK, 'directions': direction})
-            self.assertGreater(estimate['pairs'], 0)
-            self.assertEqual(estimate['pairs'], recent['totals']['pairs'])
+            self.assertGreater(recent['totals']['pairs'], 0)
+            self.assertEqual(estimate['pairs'], 0)
             manual = self.call(self.boss, '/ai/review-runs/estimate', 'POST', {
                 'model': DEEPSEEK, 'source': 'match', 'directions': direction,
                 'buyer_date_from': today, 'buyer_date_to': today, 'listing_date_from': today, 'listing_date_to': today})

@@ -40,8 +40,6 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
   const model = modelChoice ?? models?.default_model ?? 'z-ai/glm-5.3-flash';
   const [keyChoice, setKey] = useState<string | null>(null);
   const keyId = keyChoice && keys.some((key) => key.id === keyChoice) ? keyChoice : keys.find((key) => key.is_default)?.id ?? keys[0]?.id ?? '';
-  const [source, setSource] = useState<'recent' | 'match'>(() => company?.matching_filter_defaults ? 'match' : 'recent');
-  const [foundPeriod, setFoundPeriod] = useState<Period>(() => periodFor('today'));
   const [customPrompt, setCustomPrompt] = useState('');
   const [directions, setDirections] = useState<JevDirections>('both');
   const [buyerPeriod, setBuyerPeriod] = useState<Period>(() => periodFor(company?.matching_filter_defaults?.buyer_period ?? 'today_yesterday'));
@@ -56,9 +54,8 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
   const limit = Number(maxPairs);
   const limitOk = Number.isInteger(limit) && limit >= 1 && limit <= 2000;
   const periods = useMemo(() => ({
-    recent: source === 'recent', found_from: foundPeriod.from, found_to: foundPeriod.to,
     buyer_date_from: buyerPeriod.from, buyer_date_to: buyerPeriod.to, listing_date_from: listingPeriod.from, listing_date_to: listingPeriod.to,
-  }), [source, foundPeriod, buyerPeriod, listingPeriod]);
+  }), [buyerPeriod, listingPeriod]);
 
   // The same people list as "Export both directions" (the company's sender / sales contact grouping).
   const plan = useData(async (signal) => {
@@ -82,12 +79,11 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
   const groupKeys = useMemo(() => (picked ? groups.map((group) => group.key).filter((key) => picked.has(key)) : undefined), [picked, groups]);
 
   const scope: JevScope = useMemo(() => ({
-    source, custom_prompt: customPrompt, model, key_id: technical ? keyId || undefined : undefined, directions, statuses, max_pairs: limitOk ? limit : 100,
+    source: 'match', custom_prompt: customPrompt, model, key_id: technical ? keyId || undefined : undefined, directions, statuses, max_pairs: limitOk ? limit : 100,
     buyer_date_from: periods.buyer_date_from, buyer_date_to: periods.buyer_date_to,
     listing_date_from: periods.listing_date_from, listing_date_to: periods.listing_date_to,
-    found_from: periods.found_from, found_to: periods.found_to,
     ...(groupKeys ? { group_keys: groupKeys } : {}),
-  }), [source, customPrompt, model, keyId, technical, directions, statuses, limit, limitOk, periods, groupKeys]);
+  }), [customPrompt, model, keyId, technical, directions, statuses, limit, limitOk, periods, groupKeys]);
   const debounced = useDebounced(scope, 450);
   const estimate = useData((signal) => api.post<JevEstimate>('/ai/review-runs/estimate', { ...debounced, key_id: undefined }, signal),
     [debounced], !plan.loading && !plan.error && limitOk && !(groupKeys && groupKeys.length === 0));
@@ -125,9 +121,6 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
           {credits.data?.remaining === 0 && <p className="mt-2 text-sm text-danger">No credits left. Contact your administrator.</p>}
           <ErrorNotice message={credits.error} onRetry={credits.reload} />
         </section>}
-        <FilterGroup label="Review source" hint="Recent Match uses the date a new pair was found during upload. Match uses the posting dates you choose.">
-          <Segmented label="Review source" value={source} onChange={(next) => { setSource(next); setPicked(null); }} options={[{ id: 'recent', label: 'Recent Match' }, { id: 'match', label: 'Match · custom dates' }]} fullWidth />
-        </FilterGroup>
         <PromptPicker value={customPrompt} onChange={setCustomPrompt} />
         <FilterGroup label="Model">
           <ModelPicker value={model} onChange={setModel} models={models} error={modelsError} loading={modelsLoading} onRefresh={reloadModels} />
@@ -155,16 +148,14 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
           <Segmented label="Directions" value={directions} onChange={(next) => { setDirections(next); setPicked(null); }} options={DIRECTION_OPTIONS} fullWidth />
         </FilterGroup>
 
-        {source === 'recent' ? <FilterGroup label="New matches found" hint="The same import matches, company rules and active statuses as Recent Match. Message posting dates do not remove these pairs.">
-          <PeriodPicker value={foundPeriod} onChange={(next) => { setFoundPeriod(next); setPicked(null); }} presets={periodPresets(['today', 'yesterday', 'today_yesterday', 'week', 'last_week', 'month'], { untilToday: true })} label="Match discovery dates" />
-        </FilterGroup> : <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid gap-5 lg:grid-cols-2">
           <FilterGroup label="Buyers posted">
             <PeriodPicker value={buyerPeriod} onChange={(next) => { setBuyerPeriod(next); setPicked(null); }} presets={presets()} label="Buyer posting dates" />
           </FilterGroup>
           <FilterGroup label="Listings posted">
             <PeriodPicker value={listingPeriod} onChange={(next) => { setListingPeriod(next); setPicked(null); }} presets={presets()} label="Listing posting dates" />
           </FilterGroup>
-        </div>}
+        </div>
 
         <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_auto]">
           <FilterGroup label="Pairs to review">
