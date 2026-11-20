@@ -4,19 +4,19 @@ import { useMemo, useRef, useState } from 'react';
 import { Button, Input, Label, ListBox, SearchField, Select, TextField, toast } from '@heroui/react';
 import { Bot, KeyRound, Play, UsersRound } from 'lucide-react';
 import {
-  Collapsible, EmptyState, ErrorNotice, FilterGroup, LoadingIndicator, Notice, Panel, Segmented, StatusBadge, StatusFilter,
+  Collapsible, EmptyState, ErrorNotice, FilterGroup, Notice, Panel, Segmented, StatusBadge, StatusFilter,
 } from '@/components/app/primitives';
 import { PeriodPicker, periodFor, periodPresets, type Period } from '@/components/app/period-picker';
 import { PromptPicker } from '@/components/jev/prompt-picker';
 import { ModelPicker } from '@/components/jev/model-picker';
-import { errorMessage } from '@/lib/api';
+import { errorMessage, readResponse } from '@/lib/api';
 import { countLabel, number } from '@/lib/format';
 import { usd } from '@/lib/jev';
 import type { AiKey, AiModels, ExportPlan, JevDirections, JevEstimate, JevRun, JevScope, MatchStatus, Temperature } from '@/lib/types';
 import { useData, useDebounced } from '@/lib/use-data';
 import { cn } from '@/lib/utils';
 import { useCompany, useSession } from '@/lib/session';
-import { useApi } from '@/lib/workspace-context';
+import { useApi, useWorkspaceFetch } from '@/lib/workspace-context';
 
 const STATUSES: readonly Temperature[] = ['hot', 'warm', 'custom'];
 const presets = () => periodPresets(['all', 'today', 'yesterday', 'today_yesterday', 'last_3_days', 'last_7_days', 'last_14_days', 'week', 'month', 'last_month', 'last_1_month', 'last_3_months']);
@@ -24,6 +24,30 @@ const DIRECTION_OPTIONS: { id: JevDirections; label: string }[] = [
   { id: 'both', label: 'Both directions' }, { id: 'property', label: 'Listing → Buyer' }, { id: 'buyer', label: 'Buyer → Listing' },
 ];
 const ROWS = 100;
+
+async function readEstimate(response: Response, onProgress: (percent: number) => void): Promise<JevEstimate> {
+  if (!response.ok || !response.headers.get('content-type')?.includes('application/x-ndjson')) {
+    return readResponse<JevEstimate>(response);
+  }
+  const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+  let pending = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error('Counting was interrupted. Please retry.');
+      const lines = (pending + value).split('\n');
+      pending = lines.pop() ?? '';
+      for (const line of lines) {
+        const event = JSON.parse(line);
+        if (event.error) throw new Error(event.error);
+        onProgress(event.progress);
+        if (event.estimate) return event.estimate;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
 
 /** Choose model, key and scope; see what it costs; start a review run. */
 export function NewReview({ models, modelsError, modelsLoading, reloadModels, keys, onStarted, onOpenKeys }: {
@@ -73,8 +97,16 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
     ...(groupKeys ? { group_keys: groupKeys } : {}),
   }), [customPrompt, model, keyId, technical, directions, statuses, limit, limitOk, periods, groupKeys]);
   const debounced = useDebounced(scope, 450);
-  const estimate = useData((signal) => api.post<JevEstimate>('/ai/review-runs/estimate', { ...debounced, key_id: undefined }, signal),
-    [debounced], limitOk && !(groupKeys && groupKeys.length === 0));
+  const workspaceFetch = useWorkspaceFetch();
+  const [progress, setProgress] = useState(0);
+  const estimate = useData(async (signal) => {
+    setProgress(0);
+    const response = await workspaceFetch('/ai/review-runs/estimate', {
+      method: 'POST', signal, headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' },
+      body: JSON.stringify({ ...debounced, key_id: undefined }),
+    });
+    return readEstimate(response, (value) => { if (!signal.aborted) setProgress(value); });
+  }, [debounced], limitOk && !(groupKeys && groupKeys.length === 0));
   const stale = debounced !== scope;
 
   async function start() {
@@ -159,7 +191,7 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
 
         <PeoplePicker open={peopleOpen} onOpen={setPeopleOpen} groups={groups} loading={plan.loading} error={plan.error} onRetry={plan.reload} unit={unit} picked={picked} onPick={setPicked} />
 
-        <EstimateBox estimate={data} loading={estimate.loading || stale} error={estimate.error} onRetry={estimate.reload} empty={!!groupKeys && groupKeys.length === 0} unit={unit} technical={technical} />
+        <EstimateBox progress={stale ? 0 : progress} estimate={data} loading={estimate.loading || stale} error={estimate.error} onRetry={estimate.reload} empty={!!groupKeys && groupKeys.length === 0} unit={unit} technical={technical} />
 
         <ErrorNotice message={startError} title="The review did not start" />
         <div className="flex flex-wrap items-center justify-end gap-3">
@@ -233,19 +265,25 @@ function PeoplePicker({ open, onOpen, groups, loading, error, onRetry, unit, pic
   );
 }
 
-function EstimateBox({ estimate, loading, error, onRetry, empty, unit, technical }: {
-  estimate?: JevEstimate; loading: boolean; error: string; onRetry: () => void; empty: boolean; unit: [string, string]; technical: boolean;
+function EstimateBox({ progress, estimate, loading, error, onRetry, empty, unit, technical }: {
+  progress: number; estimate?: JevEstimate; loading: boolean; error: string; onRetry: () => void; empty: boolean; unit: [string, string]; technical: boolean;
 }) {
   if (empty) return <Notice status="warning">Select at least one {unit[0]}, or select all.</Notice>;
+  if (loading) return (
+    <div className="space-y-2 rounded-2xl border border-accent/20 bg-accent/5 p-4 text-sm text-accent">
+      <div className="flex justify-between"><span>Counting the pairs…</span><strong>{progress}%</strong></div>
+      <progress aria-label="Counting the pairs" max={100} value={progress} className="block h-2 w-full accent-current" />
+    </div>
+  );
   if (error) return <ErrorNotice message={error} onRetry={onRetry} title="The estimate could not be made" />;
-  if (!estimate) return loading ? <LoadingIndicator message="Counting the pairs…" /> : null;
+  if (!estimate) return null;
   if (!estimate.pairs) {
-    return <EmptyState compact title="No pairs to review" description="Widen the posting dates, choose more statuses or more people." />;
+    return <EmptyState compact title="100% · No pairs to review" description="Widen the posting dates, choose more statuses or more people." />;
   }
   return (
     <section aria-label="Estimate" aria-busy={loading} className={cn('space-y-3 rounded-2xl bg-surface-secondary p-4 transition-opacity', loading && 'opacity-60')}>
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-body font-semibold text-foreground">{countLabel(estimate.pairs, 'pair')} to review</span>
+        <span className="mr-1 text-body font-semibold text-foreground">100% · {countLabel(estimate.pairs, 'pair')} to review</span>
         {STATUSES.map((status) => (estimate.by_status[status] ? <StatusBadge key={status} status={status} count={estimate.by_status[status]} size="sm" explain={false} /> : null))}
       </div>
       {!technical ? <p className="text-sm text-muted">This manual run uses 1 credit. Previously reviewed pairs may reuse saved results.</p> : estimate.to_call === 0 ? (

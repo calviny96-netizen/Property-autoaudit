@@ -9,6 +9,7 @@ recommended pairs with the same per-person PDF layout as "Export both directions
 """
 import hashlib
 import json
+import logging
 import os
 import re
 import threading
@@ -22,6 +23,7 @@ from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 import workspace_cache
@@ -636,7 +638,7 @@ def _part(row):
     return (row.get('segment_text') or row.get('raw_text') or '').strip()
 
 
-def collect_candidates(conn, scope):
+def scan_candidates(conn, scope):
     """(group_by, deduplicated pairs in review order, number of pairs found, scan truncated?)."""
     from export_all import Filters, scope as export_scope
     from report import pair_status
@@ -657,7 +659,9 @@ def collect_candidates(conn, scope):
         AND a.source_public_id IS NOT NULL AND a.target_public_id IS NOT NULL""").fetchall()
     reviewed = {(row['buyer'], row['listing']) for row in prior}
     found, truncated = [], False
-    for direction in scope.direction_list():
+    directions = scope.direction_list()
+    yield 5
+    for index, direction in enumerate(directions):
         filters = Filters(direction=direction, statuses=','.join(chosen), stock_status='ready', group_by=group_by,
                           **periods)
         _, eligible, params = export_scope(conn, None, filters)
@@ -676,11 +680,14 @@ def collect_candidates(conn, scope):
                     if status in chosen and (buyer.get('public_id'), listing.get('public_id')) not in reviewed:
                         found.append({'direction': direction, 'source': source, 'target': target, 'status': status, 'rank': rank,
                                       'group': groups_by_id[source['id']]})
+            fraction = min(start + 100, len(ids)) / len(ids)
+            yield 5 + int(85 * (index + fraction) / len(directions))
             if len(found) >= SCAN_LIMIT:
                 truncated = True
                 break
         if truncated:
             break
+    yield 90
     # Hot first, then Warm, then Custom; newest source first; the list order of each source's matches.
     found.sort(key=lambda c: (STATUS_ORDER.index(c['status']), -(c['source']['sent_at'].timestamp() if c['source'].get('sent_at') else float('-inf')),
                               c['direction'] != 'property', str(c['source']['id']), c['rank']))
@@ -714,7 +721,17 @@ def review_item(candidate, group_by, position, model):
 
 def plan_run(conn, scope):
     """(items to review, estimate) for ``scope``."""
-    group_by, pairs, available, truncated = collect_candidates(conn, scope)
+    steps = plan_steps(conn, scope)
+    while True:
+        try:
+            next(steps)
+        except StopIteration as done:
+            return done.value
+
+
+def plan_steps(conn, scope):
+    group_by, pairs, available, truncated = yield from scan_candidates(conn, scope)
+    yield 95
     version = prompt_version_for(scope.model)
     decision = version == DECISION_PROMPT_VERSION
     if scope.custom_prompt.strip():
@@ -758,8 +775,39 @@ def plan_run(conn, scope):
     return items, estimate, info
 
 
+def estimate_events(scope, request):
+    def event(**data):
+        return json.dumps(data, default=str) + '\n'
+
+    try:
+        yield event(progress=0)
+        with connect() as conn:
+            scope = apply_company_periods(scope, company_row(conn).get('matching_filter_defaults'))
+            scope = resolve_prompt(conn, scope, request)
+            steps = plan_steps(conn, scope)
+            previous = 0
+            while True:
+                try:
+                    progress = next(steps)
+                except StopIteration as done:
+                    _, estimate, _ = done.value
+                    break
+                if progress > previous:
+                    yield event(progress=progress)
+                    previous = progress
+        yield event(progress=100, estimate=estimate)
+    except HTTPException as exc:
+        yield event(error=exc.detail)
+    except Exception:
+        logging.getLogger(__name__).exception('Pair estimate failed')
+        yield event(error='Could not count pairs. Please try again.')
+
+
 @router.post('/review-runs/estimate')
 def estimate_run(scope: ReviewScope, request: Request):
+    if request.headers.get('accept') == 'application/x-ndjson':
+        return StreamingResponse(estimate_events(scope, request), media_type='application/x-ndjson',
+                                 headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-store'})
     with connect() as conn:
         scope = apply_company_periods(scope, company_row(conn).get('matching_filter_defaults'))
         scope = resolve_prompt(conn, scope, request)
