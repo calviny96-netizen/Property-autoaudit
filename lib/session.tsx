@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { LOCKED_EVENT, REFRESH_USER_EVENT, UNAUTHORIZED_EVENT } from '@/lib/api';
-import type { CompanySettings, Stats, User } from '@/lib/types';
+import type { CompanySettings, User } from '@/lib/types';
 import { useApi, WorkspaceProvider } from '@/lib/workspace-context';
 
 /* ------------------------------------------------------------------ session */
@@ -116,12 +116,11 @@ export function ManageProvider({ user, children }: { user: User; children: React
 type CompanyValue = {
   company: CompanySettings | undefined;
   setCompany: (settings: CompanySettings) => void;
-  stats: Stats | undefined;
+  settingsError: boolean;
   unseen: number;
   unseenHot: number;
   refresh: () => void;
   markSeen: () => void;
-  refreshStats: () => Promise<void>;
 };
 const CompanyContext = createContext<CompanyValue | null>(null);
 export function useCompany() {
@@ -132,38 +131,31 @@ export function useCompany() {
 
 type UnseenSummary = { unseen: number; unseen_hot: number };
 
-/** Company settings, daily counters and the "new matches" badge; loaded once or on request. */
+/** Company settings and the "new matches" badge; loaded once or on request. */
 export function CompanyProvider({ children }: { children: ReactNode }) {
   const api = useApi();
   const [company, setCompany] = useState<CompanySettings>();
-  const [stats, setStats] = useState<Stats>();
+  const [settingsError, setSettingsError] = useState(false);
   const [summary, setSummary] = useState<UnseenSummary>({ unseen: 0, unseen_hot: 0 });
   const alive = useRef(true);
 
   const refresh = useCallback(() => {
-    void api.get<CompanySettings>('/company/settings').then((value) => { if (alive.current) setCompany(value); }).catch(() => {});
+    void api.get<CompanySettings>('/company/settings').then((value) => { if (alive.current) { setCompany(value); setSettingsError(false); } }).catch(() => { if (alive.current) setSettingsError(true); });
     void api.get<UnseenSummary>('/matches/recent/summary').then((value) => { if (alive.current) setSummary(value); }).catch(() => {});
   }, [api]);
 
   useEffect(() => {
     alive.current = true;
     refresh();
-    void api.get<Stats>('/stats').then((value) => { if (alive.current) setStats(value); }).catch(() => {});
     return () => { alive.current = false; };
   }, [refresh, api]);
-
-  const refreshStats = useCallback(async () => {
-    const value = await api.get<Stats>('/stats?refresh=true');
-    if (alive.current) setStats(value);
-    refresh();
-  }, [api, refresh]);
 
   const markSeen = useCallback(() => {
     void api.post('/matches/recent/seen').then(() => { if (alive.current) setSummary({ unseen: 0, unseen_hot: 0 }); }).catch(() => {});
   }, [api]);
 
-  const value = useMemo(() => ({ company, setCompany, stats, unseen: summary.unseen, unseenHot: summary.unseen_hot, refresh, refreshStats, markSeen }),
-    [company, stats, summary, refresh, refreshStats, markSeen]);
+  const value = useMemo(() => ({ company, setCompany, settingsError, unseen: summary.unseen, unseenHot: summary.unseen_hot, refresh, markSeen }),
+    [company, settingsError, summary, refresh, markSeen]);
   return <CompanyContext.Provider value={value}>{children}</CompanyContext.Provider>;
 }
 

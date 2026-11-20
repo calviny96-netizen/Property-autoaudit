@@ -16,6 +16,9 @@ import type { ImportRow, ImportStatus, MatchingMode, MatchStatus } from '@/lib/t
 import { cn } from '@/lib/utils';
 import { useApi } from '@/lib/workspace-context';
 
+type MatchCounts = Pick<ImportRow, 'new_matches' | 'new_hot' | 'new_warm' | 'new_custom'>;
+type ImportSummary = Omit<ImportRow, keyof MatchCounts> & Partial<MatchCounts>;
+
 const STATUS: Record<ImportStatus, { label: string; color: 'default' | 'accent' | 'success' | 'danger' | 'warning' }> = {
   queued: { label: 'Waiting', color: 'warning' },
   processing: { label: 'Processing', color: 'accent' },
@@ -43,7 +46,7 @@ function uploadFailure(reason: unknown) {
   return errorMessage(reason, 'The upload did not work. Check the file and try again.');
 }
 
-function steps(item: ImportRow) {
+function steps(item: Pick<ImportRow, 'progress' | 'status' | 'processed_messages' | 'total_messages'>) {
   const stage = item.progress?.stage;
   const reading = item.status === 'processing' && (stage ? stage === 'read' || stage === 'parse' || stage === 'index' : item.processed_messages < item.total_messages);
   const matching = item.status === 'processing' && (stage ? stage === 'match' || stage === 'finish' : item.total_messages > 0 && item.processed_messages >= item.total_messages);
@@ -86,27 +89,40 @@ export default function UploadPage({ navigate }: { navigate?: Navigate }) {
   const [estimate, setEstimate] = useState<{ name: string; messages: number; seconds: number | null } | null>(null);
   const seen = useRef<Record<string, string>>({});
 
-  const imports = useData((signal) => api.get<ImportRow[]>('/imports', signal), []);
+  const [completedId, setCompletedId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const imports = useData((signal) => api.get<ImportSummary[]>('/imports/summary', signal), []);
+  const details = useData((signal) => api.get<ImportRow[]>('/imports', signal), [], expanded || !!completedId);
+  const reloadDetails = details.reload;
   const reload = imports.reload;
   const active = imports.data?.some((item) => item.status === 'queued' || item.status === 'processing');
 
   // While something is being processed, look again every few seconds; announce the moment it finishes.
   useEffect(() => {
-    if (!active) return;
-    const timer = window.setInterval(reload, 2500);
-    return () => window.clearInterval(timer);
-  }, [active, reload]);
+    if (imports.loading) return;
+    const timer = window.setTimeout(reload, active ? 2500 : 15000);
+    return () => window.clearTimeout(timer);
+  }, [active, imports.loading, reload]);
   useEffect(() => {
     for (const item of imports.data ?? []) {
       const before = seen.current[item.id];
       seen.current[item.id] = item.status;
       if (before && before !== 'completed' && item.status === 'completed') {
         refresh();
-        setCelebrate(item);
-        if (item.new_matches > 0) void confetti.current?.fire({ particleCount: 120, spread: 75, origin: { y: 0.35 }, colors: ['#0a3be0', '#5dd0ea', '#f59e0b', '#dc2626', '#7c3aed'] });
+        reloadDetails();
+        setCompletedId(item.id);
       }
     }
-  }, [imports.data, refresh]);
+  }, [imports.data, refresh, reloadDetails]);
+  useEffect(() => {
+    if (!completedId || details.loading) return;
+    const completed = details.data?.find((row) => row.id === completedId && row.status === 'completed');
+    if (completed) {
+      setCelebrate(completed);
+      if (completed.new_matches > 0) void confetti.current?.fire({ particleCount: 120, spread: 75 });
+    }
+    setCompletedId(null);
+  }, [completedId, details.data, details.loading]);
 
   function choose(candidate?: File | null) {
     setError(''); setNotice('');
@@ -163,7 +179,7 @@ export default function UploadPage({ navigate }: { navigate?: Navigate }) {
   }
 
   const running = imports.data?.filter((item) => item.status === 'queued' || item.status === 'processing') ?? [];
-  const history = imports.data ?? [];
+  const history = expanded && details.data ? details.data : (imports.data ?? []).filter((item) => item.status === 'completed' || item.status === 'failed');
   const ready = !!file && !!agent.trim() && !busy && !!company && !noWatchlist;
   const current = running.find((item) => item.status === 'processing') ?? running[0];
 
@@ -171,7 +187,7 @@ export default function UploadPage({ navigate }: { navigate?: Navigate }) {
     <div className="space-y-6">
       <Confetti ref={confetti} manualstart className="pointer-events-none fixed inset-0 z-[100] size-full" aria-hidden="true" />
       <PageHeader title="Upload" description="Add a WhatsApp chat export (cleaned.json). Once it is processed, new buyer and listing pairs appear in Recent matches." />
-      {current && <ProcessingProgress progress={current.progress} title={`Processing ${current.file_name}…`} />}
+      {current && <ProcessingProgress progress={current.progress} title={`${current.status === 'queued' ? 'Waiting to start' : 'Processing'} · ${current.file_name}`} />}
 
       {celebrate && (
         <section aria-live="polite" className="rounded-2xl border border-success/40 bg-success-soft/60 p-4 sm:p-6">
@@ -192,6 +208,47 @@ export default function UploadPage({ navigate }: { navigate?: Navigate }) {
           </div>
         </section>
       )}
+
+      <Panel title={<span className="flex items-center gap-2"><History className="size-5 text-accent" aria-hidden="true" />Upload history</span>} description={expanded ? "Newest uploads first." : "Two most recently finished uploads."} actions={<Button size="sm" variant="tertiary" onPress={() => { if (!expanded) reloadDetails(); setExpanded(!expanded); }}>{expanded ? "Show latest two" : "View upload history"}</Button>}>
+        <div className="space-y-3">
+          {expanded && <ErrorNotice message={details.error} onRetry={reloadDetails} />}
+          <ErrorNotice message={imports.error} onRetry={imports.reload} />
+          {imports.loading && !imports.data && <SkeletonList rows={2} />}
+          {history.length === 0 && !running.length && imports.data && <EmptyState compact icon={<UploadCloud />} title="No uploads yet" description="Chats you upload are listed here." />}
+          {history.length > 0 && (
+            <ul className="divide-y divide-separator overflow-hidden rounded-2xl border border-border">
+              {history.map((item) => (
+                <li key={item.id} className="space-y-2 px-4 py-3.5 sm:px-5">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-body font-semibold break-all text-foreground">{item.file_name}</p>
+                      <p className="text-caption text-muted">{[item.agent_name, dateTime((!expanded && item.finished_at) || item.created_at), item.matching_mode ? MODE_LABELS[item.matching_mode] : ''].filter(Boolean).join(' · ')}</p>
+                    </div>
+                    <Chip size="sm" variant="soft" color={STATUS[item.status]?.color ?? 'default'}>{STATUS[item.status]?.label ?? item.status}</Chip>
+                  </div>
+                  {item.status === 'failed' && (
+                    <p className="flex items-start gap-2 text-sm text-danger">
+                      <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                      <span className="min-w-0 break-words">{importFailure(item.error)}</span>
+                    </p>
+                  )}
+                  {item.status === 'completed' && (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
+                      <span><strong className="font-semibold tabular-nums">{number(item.request_count)}</strong> {item.request_count === 1 ? 'buyer request' : 'buyer requests'}</span>
+                      <span><strong className="font-semibold tabular-nums">{number(item.listing_count)}</strong> {item.listing_count === 1 ? 'listing' : 'listings'}</span>
+                      <span className="text-muted">{countLabel(item.duplicate_count, 'repeat')} · {number(item.ignored_count)} skipped (not a buyer or listing)</span>
+                      {item.new_matches != null && <span className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-accent">{countLabel(item.new_matches, 'new match', 'new matches')}</span>
+                        {item.new_matches > 0 && <NewMatchCounts item={{ new_hot: item.new_hot ?? 0, new_warm: item.new_warm ?? 0, new_custom: item.new_custom }} />}
+                      </span>}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Panel>
 
       <Panel title="Upload a chat" description="Drop the file in the box, or tap the box to choose it.">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
@@ -277,45 +334,7 @@ export default function UploadPage({ navigate }: { navigate?: Navigate }) {
         </Panel>
       ))}
 
-      <Panel title={<span className="flex items-center gap-2"><History className="size-5 text-accent" aria-hidden="true" />Upload history</span>} description="Newest first.">
-        <div className="space-y-3">
-          <ErrorNotice message={imports.error} onRetry={imports.reload} />
-          {imports.loading && !imports.data && <SkeletonList rows={2} />}
-          {history.length === 0 && imports.data && <EmptyState compact icon={<UploadCloud />} title="No uploads yet" description="Chats you upload are listed here." />}
-          {history.length > 0 && (
-            <ul className="divide-y divide-separator overflow-hidden rounded-2xl border border-border">
-              {history.map((item) => (
-                <li key={item.id} className="space-y-2 px-4 py-3.5 sm:px-5">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-body font-semibold break-all text-foreground">{item.file_name}</p>
-                      <p className="text-caption text-muted">{[item.agent_name, dateTime(item.created_at), item.matching_mode ? MODE_LABELS[item.matching_mode] : ''].filter(Boolean).join(' · ')}</p>
-                    </div>
-                    <Chip size="sm" variant="soft" color={STATUS[item.status]?.color ?? 'default'}>{STATUS[item.status]?.label ?? item.status}</Chip>
-                  </div>
-                  {item.status === 'failed' && (
-                    <p className="flex items-start gap-2 text-sm text-danger">
-                      <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                      <span className="min-w-0 break-words">{importFailure(item.error)}</span>
-                    </p>
-                  )}
-                  {item.status === 'completed' && (
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
-                      <span><strong className="font-semibold tabular-nums">{number(item.request_count)}</strong> {item.request_count === 1 ? 'buyer request' : 'buyer requests'}</span>
-                      <span><strong className="font-semibold tabular-nums">{number(item.listing_count)}</strong> {item.listing_count === 1 ? 'listing' : 'listings'}</span>
-                      <span className="text-muted">{countLabel(item.duplicate_count, 'repeat')} · {number(item.ignored_count)} skipped (not a buyer or listing)</span>
-                      <span className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-accent">{countLabel(item.new_matches, 'new match', 'new matches')}</span>
-                        {item.new_matches > 0 && <NewMatchCounts item={item} />}
-                      </span>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </Panel>
+
     </div>
   );
 }

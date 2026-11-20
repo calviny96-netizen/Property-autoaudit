@@ -45,13 +45,15 @@ function allowedMainPage(page: string, pages: Permissions['pages'] | undefined):
 function CompanyWorkspace() {
   const { path, params, navigate } = useRoute();
   const { user } = useSession();
-  const { company } = useCompany();
+  const { company, settingsError, refresh } = useCompany();
   const perms = company?.permissions;
 
   // Pages a role may not open fall back to Home rather than showing an error.
   let page = path;
-  if (!company) page = ROUTES.home;
-  else if (page === ROUTES.upload && (user.role !== 'admin' || !perms?.upload_data)) page = ROUTES.home;
+  if (!company) return <AppShell route={path} navigate={navigate}>{settingsError
+    ? <Notice status="warning">Workspace settings could not be loaded. <button onClick={refresh} className="underline">Try again</button></Notice>
+    : <SkeletonList rows={3} />}</AppShell>;
+  if (page === ROUTES.upload && (user.role !== 'admin' || !perms?.upload_data)) page = ROUTES.home;
   else if (page === ROUTES.tracker && perms?.pages?.match === false) page = ROUTES.home;
   else if (page === ROUTES.team && !perms?.manage_team) page = ROUTES.home;
   else if (page === ROUTES.companies && user.role !== 'admin') page = ROUTES.home;

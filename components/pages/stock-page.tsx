@@ -3,8 +3,8 @@
 import { useMemo, useState } from 'react';
 import { Avatar, Button, Label, ListBox, Select, toast, useOverlayState } from '@heroui/react';
 import { Boxes, CircleCheck, ClipboardList, Clock3, Download, Eye, History, PackageCheck, Pencil, PhoneCall, Plus, Tag, UploadCloud } from 'lucide-react';
-import { BarsChart, Sparkline } from '@/components/charts/charts';
-import { colors } from '@/components/charts/chart-setup';
+import dynamic from 'next/dynamic';
+import { colors } from '@/components/charts/palette';
 import { EmptyState, ErrorNotice, FilterGroup, IconBadge, LoadingIndicator, PageHeader, Panel, SkeletonList, SkeletonStats, StatCard } from '@/components/app/primitives';
 import { SalesListingsModal } from '@/components/app/sales-listings-modal';
 import { TrackedEditor } from '@/components/app/tracked-editor';
@@ -17,6 +17,9 @@ import { useData } from '@/lib/use-data';
 import type { StockLogRow, StockOverview, StockTracked } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useApi } from '@/lib/workspace-context';
+
+const BarsChart = dynamic(() => import('@/components/charts/charts').then((charts) => charts.BarsChart), { ssr: false });
+const Sparkline = dynamic(() => import('@/components/charts/charts').then((charts) => charts.Sparkline), { ssr: false });
 
 const EVENT = {
   import: { label: 'New upload', icon: UploadCloud, tone: 'blue' },
@@ -46,7 +49,7 @@ export default function StockPage(_props: { navigate?: Navigate }) {
   const [downloading, setDownloading] = useState<string | null>(null);
 
   const overview = useData((signal) => api.get<StockOverview>('/stock/overview', signal), [tick]);
-  const log = useData((signal) => api.get<{ rows: StockLogRow[]; has_more: boolean }>(`/stock/log?${query({ phone, date_from: period.from, date_to: period.to, limit })}`, signal), [phone, period.from, period.to, limit, tick]);
+  const log = useData((signal) => api.get<{ rows: StockLogRow[]; has_more: boolean }>(`/stock/log?${query({ phone, date_from: period.from, date_to: period.to, limit })}`, signal), [phone, period.from, period.to, limit, tick], !!overview.data?.tracked.length);
 
   const tracked = useMemo(() => overview.data?.tracked ?? [], [overview.data]);
   const totals = overview.data?.totals;

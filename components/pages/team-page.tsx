@@ -48,7 +48,7 @@ export default function TeamPage() {
   const [created, setCreated] = useState<CreatedInfo | null>(null);
   const form = useOverlayState();
   const members = useData((signal) => api.get<TeamMember[]>('/team/users', signal), [tick]);
-  const catalogData = useData((signal) => api.get<FeatureCatalog>('/team/features', signal), []);
+  const catalogData = useData((signal) => api.get<FeatureCatalog>('/team/features', signal), [], !!members.data || form.isOpen);
   const catalog = catalogData.data ?? FALLBACK_CATALOG;
   const labelOf = (id: Feature) => catalog.features.find((feature) => feature.id === id)?.label ?? FEATURE_LABELS[id] ?? id;
   const reload = () => setTick((value) => value + 1);

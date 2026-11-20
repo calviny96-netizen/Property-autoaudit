@@ -5,7 +5,7 @@ import { RangeButton } from '@/components/app/period-picker';
 import { todayWib } from '@/lib/format';
 import { Button, Chip, Input, Label, ListBox, Select, TextField } from '@heroui/react';
 import { Activity, Bot, Coins, Download, LogIn, RefreshCw, ScrollText, Upload } from 'lucide-react';
-import { categorical } from '@/components/charts/chart-setup';
+import { categorical } from '@/components/charts/palette';
 import {
   EmptyState, ErrorNotice, FilterGroup, PageHeader, PagerBar, Panel, Segmented, SkeletonList, SkeletonStats, StatCard,
 } from '@/components/app/primitives';

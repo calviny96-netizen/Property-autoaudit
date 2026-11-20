@@ -57,16 +57,23 @@ def buyer_list(search: str = '', status: str = '', offset: int = 0, scope: str =
           WHERE g.company_id = current_setting('xm.workspace_id') AND g.document_type = 'buyer_request' AND d.active''' + \
             scope_sql + search_sql + ''' ORDER BY g.group_id, r.sent_at DESC NULLS LAST, d.id)'''
         params = [*scope_params, *search_params]
+        if not search_sql and not scope_sql:
+            # The group builder already records the latest active posting and its date.
+            base = """WITH cards AS (
+              SELECT group_id, group_id AS id, status, last_seen_at AS sent_at
+              FROM xm.document_groups WHERE company_id=current_setting('xm.workspace_id')
+              AND document_type='buyer_request')"""
         counts = {s: 0 for s in STATUSES}
         for row in conn.execute(base + ' SELECT status, count(*) n FROM cards GROUP BY 1', params).fetchall():
             counts[row['status']] = row['n']
         filter_sql = ' WHERE c.status = ANY(%s)' if chosen else ''
-        rows = conn.execute(base + '''
+        rows = conn.execute(base + ', page AS (SELECT * FROM cards c' + filter_sql + '''
+          ORDER BY c.sent_at DESC NULLS LAST, c.id LIMIT %s OFFSET %s)
           SELECT d.*, r.raw_text, r.chat_name, r.sent_at, r.author, g.public_id, g.status AS entity_status, g.entity_id,
                  g.duplicate_count, g.last_seen_at, g.hot_count, g.warm_count, g.custom_count,
                  g.hot_count + g.warm_count + g.custom_count AS match_count
-          FROM cards c JOIN xm.documents d ON d.id = c.id JOIN xm.raw_messages r ON r.id = d.raw_message_id
-          JOIN xm.document_groups g ON g.group_id = c.group_id''' + filter_sql + '''
-          ORDER BY c.sent_at DESC NULLS LAST, c.id LIMIT %s OFFSET %s''',
+          FROM page c JOIN xm.documents d ON d.id = c.id JOIN xm.raw_messages r ON r.id = d.raw_message_id
+          JOIN xm.document_groups g ON g.group_id = c.group_id
+          ORDER BY c.sent_at DESC NULLS LAST, c.id''',
             [*params, *([chosen] if chosen else []), PAGE + 1, max(0, offset)]).fetchall()
     return {'rows': rows[:PAGE], 'has_more': len(rows) > PAGE, 'counts': counts, 'page_size': PAGE}

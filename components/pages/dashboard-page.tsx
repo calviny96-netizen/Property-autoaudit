@@ -3,8 +3,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { Button, toast } from '@heroui/react';
 import { ArrowRight, Boxes, ChevronRight, FileDown, Lightbulb, RefreshCw, Sparkles, Target, TrendingUp, UploadCloud, Users } from 'lucide-react';
-import { BarsChart, RingChart, TrendChart } from '@/components/charts/charts';
-import { colors, statusColors } from '@/components/charts/chart-setup';
+import dynamic from 'next/dynamic';
+import { colors, statusColors } from '@/components/charts/palette';
 import { EmptyState, ErrorNotice, FilterGroup, IdChip, PageHeader, Panel, Segmented, SkeletonChart, StatCard, StatusBadge } from '@/components/app/primitives';
 import { AnalysisWindowNotice } from '@/components/app/analysis-window-notice';
 import { DEFAULT_DASHBOARD_PERIOD, PeriodPicker, dashboardPresets, type Period } from '@/components/app/period-picker';
@@ -13,8 +13,12 @@ import { errorMessage, query } from '@/lib/api';
 import { ROUTE_PARAMS, ROUTES, type Navigate } from '@/lib/router';
 import { useCompany, useSession } from '@/lib/session';
 import { useData } from '@/lib/use-data';
-import type { Dashboard, MatchStatus, RecentResponse } from '@/lib/types';
+import type { Dashboard, MatchStatus, RecentResponse, Stats } from '@/lib/types';
 import { useApi } from '@/lib/workspace-context';
+
+const BarsChart = dynamic(() => import('@/components/charts/charts').then((charts) => charts.BarsChart), { ssr: false });
+const TrendChart = dynamic(() => import('@/components/charts/charts').then((charts) => charts.TrendChart), { ssr: false });
+const RingChart = dynamic(() => import('@/components/charts/charts').then((charts) => charts.RingChart), { ssr: false });
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const labelFor = (iso: string, bucket: 'day' | 'week') => (bucket === 'week' ? `Wk of ${shortDay(iso)}` : shortDay(iso));
@@ -41,7 +45,9 @@ function StatusCounts({ hot, warm, custom }: { hot: number; warm: number; custom
 export default function DashboardPage({ navigate, params }: { navigate?: Navigate; params?: URLSearchParams }) {
   const api = useApi();
   const { user } = useSession();
-  const { company, stats, refreshStats } = useCompany();
+  const { company, refresh } = useCompany();
+  const statistics = useData((signal) => api.get<Stats>('/stats', signal), []);
+  const stats = statistics.data;
   const [refreshingStats, setRefreshingStats] = useState(false);
   const forceOverview = useRef(false);
   const scopeKey = JSON.stringify([company?.matching_mode, company?.search_terms, company?.tracked_phones]);
@@ -95,7 +101,8 @@ export default function DashboardPage({ navigate, params }: { navigate?: Navigat
     if (refreshingStats || loading) return;
     setRefreshingStats(true);
     try {
-      await refreshStats();
+      statistics.setData(await api.get<Stats>('/stats?refresh=true'));
+      refresh();
       forceOverview.current = true;
       reload();
     } catch (reason) {
@@ -187,7 +194,7 @@ export default function DashboardPage({ navigate, params }: { navigate?: Navigat
         </Panel>
       )}
 
-      <RecentFeed key={scopeKey} onOpen={() => navigate?.(ROUTES.recent)} />
+      {(data || error) && <RecentFeed key={scopeKey} onOpen={() => navigate?.(ROUTES.recent)} />}
 
       {loading && !data && <div className="grid gap-6 lg:grid-cols-2">{[0, 1, 2, 3].map((n) => <SkeletonChart key={n} />)}</div>}
 

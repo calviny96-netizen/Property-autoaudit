@@ -195,6 +195,24 @@ def load_stats():
     return {**row, "qdrant": qdrant_status()}
 
 
+@app.get("/imports/summary")
+def import_summary():
+    """First paint and live polling need only import rows, without match-history aggregates."""
+    with connect() as conn:
+        rows = conn.execute("""WITH visible AS (
+            (SELECT * FROM xm.imports WHERE company_id=current_setting('xm.workspace_id')
+             AND status IN ('completed','failed')
+             ORDER BY coalesce(finished_at,created_at) DESC, id DESC LIMIT 2)
+            UNION ALL
+            (SELECT * FROM xm.imports WHERE company_id=current_setting('xm.workspace_id')
+             AND status IN ('queued','processing'))
+        )
+        SELECT id,file_name,agent_name,matching_mode,status,progress,created_at,started_at,finished_at,
+               processed_messages,total_messages,request_count,listing_count,duplicate_count,ignored_count,error
+        FROM visible ORDER BY coalesce(finished_at,started_at,created_at) DESC,id DESC""").fetchall()
+    return rows
+
+
 @app.get("/imports")
 def imports():
     """Import rows are read fresh (they carry the live progress); the per-import match counts scan the match
