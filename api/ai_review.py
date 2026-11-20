@@ -864,10 +864,14 @@ def run_summary(conn, run_id):
 
 
 @router.get('/review-runs')
-def list_runs(limit: int = 30):
+def list_runs(limit: int = 30, offset: int = 0):
+    limit = min(max(limit, 1), 100)
     with connect() as conn:
-        rows = conn.execute(RUN_SQL + ' ORDER BY r.created_at DESC LIMIT %s', (min(max(limit, 1), 100),)).fetchall()
-    return {'runs': [_summary(row) for row in rows]}
+        rows = conn.execute(RUN_SQL + ''' AND r.id IN (
+            SELECT id FROM xm.ai_review_runs WHERE company_id=current_setting('xm.workspace_id')
+            ORDER BY created_at DESC,id DESC LIMIT %s OFFSET %s)
+            ORDER BY r.created_at DESC,r.id DESC''', (limit + 1, max(0, offset))).fetchall()
+    return {'runs': [_summary(row) for row in rows[:limit]], 'has_more': len(rows) > limit}
 
 
 @router.get('/review-runs/{run_id}')

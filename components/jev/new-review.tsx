@@ -58,25 +58,13 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
   }), [buyerPeriod, listingPeriod]);
 
   // The same people list as "Export both directions" (the company's sender / sales contact grouping).
-  const plan = useData(async (signal) => {
-    const load = (direction: 'buyer' | 'property') => api.post<ExportPlan>('/export/all/plan', {
-      direction, combined: false, statuses: statuses.join(','), ...periods,
-    }, signal);
-    const first = await load(directions === 'property' ? 'property' : 'buyer');
-    if (directions !== 'both') return first;
-    const second = await load('property');
-    const merged = new Map(first.groups.map((group) => [group.key, { ...group }]));
-    for (const group of second.groups) {
-      const previous = merged.get(group.key);
-      merged.set(group.key, previous ? { ...previous, hot: previous.hot + group.hot,
-        warm: previous.warm + group.warm, custom: (previous.custom ?? 0) + (group.custom ?? 0),
-        unmatched: previous.unmatched + group.unmatched, pages: previous.pages + group.pages,
-        sources: previous.sources + group.sources } : group);
-    }
-    return { ...first, combined: true, groups: [...merged.values()] };
-  }, [directions, statuses, periods]);
+  const [peopleOpen, setPeopleOpen] = useState(false);
+  const plan = useData((signal) => api.post<ExportPlan>('/export/all/plan', {
+    direction: directions === 'property' ? 'property' : 'buyer', combined: directions === 'both',
+    statuses: statuses.join(','), ...periods,
+  }, signal), [directions, statuses, periods], peopleOpen);
   const groups = useMemo(() => plan.data?.groups ?? [], [plan.data]);
-  const groupKeys = useMemo(() => (picked ? groups.map((group) => group.key).filter((key) => picked.has(key)) : undefined), [picked, groups]);
+  const groupKeys = useMemo(() => (picked ? Array.from(picked) : undefined), [picked]);
 
   const scope: JevScope = useMemo(() => ({
     source: 'match', custom_prompt: customPrompt, model, key_id: technical ? keyId || undefined : undefined, directions, statuses, max_pairs: limitOk ? limit : 100,
@@ -86,7 +74,7 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
   }), [customPrompt, model, keyId, technical, directions, statuses, limit, limitOk, periods, groupKeys]);
   const debounced = useDebounced(scope, 450);
   const estimate = useData((signal) => api.post<JevEstimate>('/ai/review-runs/estimate', { ...debounced, key_id: undefined }, signal),
-    [debounced], !plan.loading && !plan.error && limitOk && !(groupKeys && groupKeys.length === 0));
+    [debounced], limitOk && !(groupKeys && groupKeys.length === 0));
   const stale = debounced !== scope;
 
   async function start() {
@@ -103,10 +91,10 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
   }
 
   const data = estimate.data;
-  const grouping = plan.data?.group_by ?? data?.group_by ?? 'sender';
+  const grouping = plan.data?.group_by ?? data?.group_by ?? company?.listing_group_by ?? 'sender';
   const byPhone = grouping !== 'sender';
   const unit: [string, string] = byPhone ? ['sales contact', 'sales contacts'] : ['sender', 'senders'];
-  const canStart = (technical || !!credits.data?.remaining) && !plan.loading && !plan.error && (!technical || !!keyId) && limitOk && !!data && data.pairs > 0 && !stale && !estimate.loading && !(groupKeys && groupKeys.length === 0);
+  const canStart = (technical || !!credits.data?.remaining) && (!technical || !!keyId) && limitOk && !!data && data.pairs > 0 && !stale && !estimate.error && !estimate.loading && !(groupKeys && groupKeys.length === 0);
 
   return (
     <Panel title={<span className="flex items-center gap-2"><Bot className="size-5 text-accent" aria-hidden="true" />New review</span>}
@@ -169,9 +157,9 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
           </TextField>
         </div>
 
-        <PeoplePicker groups={groups} loading={plan.loading} error={plan.error} onRetry={plan.reload} unit={unit} picked={picked} onPick={setPicked} />
+        <PeoplePicker open={peopleOpen} onOpen={setPeopleOpen} groups={groups} loading={plan.loading} error={plan.error} onRetry={plan.reload} unit={unit} picked={picked} onPick={setPicked} />
 
-        <EstimateBox estimate={data} loading={plan.loading || estimate.loading || stale} error={estimate.error} onRetry={estimate.reload} empty={!!groupKeys && groupKeys.length === 0} unit={unit} technical={technical} />
+        <EstimateBox estimate={data} loading={estimate.loading || stale} error={estimate.error} onRetry={estimate.reload} empty={!!groupKeys && groupKeys.length === 0} unit={unit} technical={technical} />
 
         <ErrorNotice message={startError} title="The review did not start" />
         <div className="flex flex-wrap items-center justify-end gap-3">
@@ -184,8 +172,8 @@ export function NewReview({ models, modelsError, modelsLoading, reloadModels, ke
   );
 }
 
-function PeoplePicker({ groups, loading, error, onRetry, unit, picked, onPick }: {
-  groups: ExportPlan['groups']; loading: boolean; error: string; onRetry: () => void; unit: [string, string];
+function PeoplePicker({ open, onOpen, groups, loading, error, onRetry, unit, picked, onPick }: {
+  open: boolean; onOpen: (open: boolean) => void; groups: ExportPlan['groups']; loading: boolean; error: string; onRetry: () => void; unit: [string, string];
   picked: Set<string> | null; onPick: (next: Set<string> | null) => void;
 }) {
   const [search, setSearch] = useState('');
@@ -202,8 +190,8 @@ function PeoplePicker({ groups, loading, error, onRetry, unit, picked, onPick }:
   }
 
   return (
-    <Collapsible title={`Only some ${unit[1]} (optional)`} icon={<UsersRound />}
-      description={loading && !groups.length ? `Loading ${unit[1]}…` : picked ? `${number(count)} of ${countLabel(groups.length, unit[0], unit[1])} selected` : `All ${countLabel(groups.length, unit[0], unit[1])}`}>
+    <Collapsible open={open} onOpenChange={onOpen} title={`Only some ${unit[1]} (optional)`} icon={<UsersRound />}
+      description={!open && !picked ? `All ${unit[1]}` : loading && !groups.length ? `Loading ${unit[1]}…` : picked ? `${number(count)} of ${countLabel(groups.length, unit[0], unit[1])} selected` : `All ${countLabel(groups.length, unit[0], unit[1])}`}>
       <div className="space-y-3">
         <ErrorNotice message={error} onRetry={onRetry} />
         {!loading && !groups.length && !error && <p className="text-sm text-muted">No {unit[1]} have pairs with these filters.</p>}

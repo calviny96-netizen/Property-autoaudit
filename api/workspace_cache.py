@@ -323,4 +323,8 @@ def recommendations(conn, direction, ids, target_statuses=DEFAULT_TARGET_STATUSE
       ORDER BY {ownership.RANK_COLUMN},{ownership.status_rank_sql('m.status')},m.score DESC,r.sent_at DESC NULLS LAST,d.id''',
       values + [ids] + [ids, *target_params] + tier_values + [ids] + unseen_values).fetchall()
     ownership.label(rows)
-    return {'groups':[{'source':s,'recommendations':[r for r in rows if r['source_id']==s['id']]} for s in sources]}
+    by_source = {}
+    for row in rows:
+        by_source.setdefault(row['source_id'], []).append(row)
+    return {'groups': [{'source': source, 'recommendations': by_source.get(source['id'], [])}
+                       for source in sources]}

@@ -23,11 +23,19 @@ export default function JevPage({ params, navigate }: { params?: URLSearchParams
   const runId = params?.get(ROUTE_PARAMS.run) ?? '';
   if (!company?.permissions.jev_review) return <Notice>Only company admins can use AI Review.</Notice>;
   if (params?.get('view') === 'history') return <PairHistory back={() => open(ROUTES.jev)} />;
-  if (runId) return <RunView key={runId} runId={runId} onBack={() => open(ROUTES.jev)} />;
-  return <Overview onHistory={() => open(ROUTES.jev, { view: 'history' })} onOpenRun={(id) => open(ROUTES.jev, { [ROUTE_PARAMS.run]: id })} onOpenKeys={() => open(ROUTES.settings, { [ROUTE_PARAMS.tab]: 'ai' })} />;
+  const archive = params?.get('view') === 'reviews';
+  const page = Math.max(1, Math.min(1000000, Number.parseInt(params?.get('page') ?? '1', 10) || 1));
+  const openPage = (next: number) => open(ROUTES.jev, { view: 'reviews', page: String(next) });
+  if (archive && !runId) return <div className="space-y-6">
+    <PageHeader title="Review history" actions={<Button variant="secondary" onPress={() => open(ROUTES.jev)}>Back to AI Review</Button>} />
+    <ReviewList key={page} page={page} archive onPage={openPage}
+      onOpenRun={id => open(ROUTES.jev, { view: 'reviews', page: String(page), [ROUTE_PARAMS.run]: id })} />
+  </div>;
+  if (runId) return <RunView key={runId} runId={runId} onBack={() => archive ? openPage(page) : open(ROUTES.jev)} />;
+  return <Overview onPage={openPage} onHistory={() => open(ROUTES.jev, { view: 'history' })} onOpenRun={(id) => open(ROUTES.jev, { [ROUTE_PARAMS.run]: id })} onOpenKeys={() => open(ROUTES.settings, { [ROUTE_PARAMS.tab]: 'ai' })} />;
 }
 
-function Overview({ onOpenRun, onOpenKeys, onHistory }: { onHistory: () => void; onOpenRun: (id: string) => void; onOpenKeys: () => void }) {
+function Overview({ onOpenRun, onOpenKeys, onHistory, onPage }: { onPage: (page: number) => void; onHistory: () => void; onOpenRun: (id: string) => void; onOpenKeys: () => void }) {
   const api = useApi();
   const { user } = useSession();
   const technical = user.role === 'admin';
@@ -35,8 +43,6 @@ function Overview({ onOpenRun, onOpenKeys, onHistory }: { onHistory: () => void;
   const [forced, setForced] = useState(0);
   const models = useData((signal) => api.get<AiModels>(`/ai/models${forced ? '?refresh=true' : ''}`, signal), [forced]);
   const keys = useData((signal) => api.get<{ keys: AiKey[] }>('/ai/keys', signal), [technical], technical);
-  const runs = useData((signal) => api.get<{ runs: JevRun[] }>('/ai/review-runs', signal), []);
-  const list = runs.data?.runs ?? [];
   const keyList = keys.data?.keys ?? [];
 
   return (
@@ -52,6 +58,21 @@ function Overview({ onOpenRun, onOpenKeys, onHistory }: { onHistory: () => void;
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <NewReview models={models.data} modelsError={models.error} modelsLoading={models.loading} reloadModels={() => setForced((value) => value + 1)}
           keys={keyList} onStarted={(run) => onOpenRun(run.id)} onOpenKeys={onOpenKeys} />
+        <ReviewList page={1} onPage={onPage} onOpenRun={onOpenRun} />
+      </div>
+    </div>
+  );
+}
+
+function ReviewList({ page, archive = false, onPage, onOpenRun }: {
+  page: number; archive?: boolean; onPage: (page: number) => void; onOpenRun: (id: string) => void;
+}) {
+  const api = useApi();
+  const technical = useSession().user.role === 'admin';
+  const runs = useData((signal) => api.get<{ runs: JevRun[]; has_more: boolean }>(
+    `/ai/review-runs?limit=15&offset=${(page - 1) * 15}`, signal), [page]);
+  const list = runs.data?.runs ?? [];
+  return (
         <Panel title="Reviews" description="Newest first." flush
           actions={<Button isIconOnly size="sm" variant="ghost" aria-label="Refresh the reviews" isDisabled={runs.loading} onPress={runs.reload}><RefreshCw className="size-4" /></Button>}>
           <div className="px-4 pb-4 sm:px-6">
@@ -83,8 +104,10 @@ function Overview({ onOpenRun, onOpenKeys, onHistory }: { onHistory: () => void;
               ))}
             </ul>
           )}
+          <div className="flex gap-2 px-4 py-3">
+            {archive && page > 1 && <Button variant="secondary" onPress={() => onPage(page - 1)}>Previous</Button>}
+            {runs.data?.has_more && <Button variant="secondary" onPress={() => onPage(page + 1)}>{archive ? 'Next' : 'Load more'}</Button>}
+          </div>
         </Panel>
-      </div>
-    </div>
   );
 }
